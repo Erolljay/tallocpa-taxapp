@@ -110,8 +110,12 @@
     }, ok ? 1400 : 3000);
   }
 
-  // Helper: get current business from App.currentBusiness (set by shared.js)
-  function biz() { return (typeof App !== 'undefined' && App.currentBusiness) ? App.currentBusiness : ''; }
+  // Helper: get current business — reads businessSelect directly (new app.js pattern)
+  function biz() {
+    var sel = document.getElementById('business');
+    if (sel && sel.value) return sel.value;
+    return (typeof App !== 'undefined' && App.currentBusiness) ? App.currentBusiness : '';
+  }
 
   // ── SECTION: BUSINESS INFO ─────────────────────────────────────────────────
   // Reads/writes directly from Manager's business-details customFields.
