@@ -124,8 +124,8 @@
     <div class="card-title">🔌 Step 1 — Connect to Manager.io</div>
 
     <div class="alert alert-info">
-      ℹ️ This installer uses the Manager.io <strong>API4</strong> directly. You need an <strong>account-level API key</strong>
-      (not a business API key). Find it in Manager → <em>Preferences → API Keys</em>.
+      ℹ️ This installer uses the Manager.io <strong>API4</strong>. You need an <strong>access token</strong>
+      from Manager → <em>Settings → Access tokens → New access token</em>. This is different from the old API Keys.
     </div>
 
     <div class="form-row">
@@ -136,9 +136,9 @@
         <div class="hint">For cloud: https://app.manager.io — For server: your local/VPS URL</div>
       </div>
       <div class="form-group">
-        <label class="form-label">API Key (Account Level)</label>
-        <input class="form-input" id="api-key" type="password" placeholder="Paste your API key here">
-        <div class="hint">Account-level key has access to all businesses</div>
+        <label class="form-label">Access Token</label>
+        <input class="form-input" id="api-key" type="password" placeholder="Paste your access token here">
+        <div class="hint">From Manager → Settings → Access tokens → New access token</div>
       </div>
     </div>
 
@@ -218,7 +218,7 @@
 
     <div style="margin-top:14px;">
       <div class="card-title" style="font-size:12px;margin-bottom:8px;">Headers required</div>
-      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">X-API-KEY: &lt;your-account-api-key&gt;
+      <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">Authorization: Bearer &lt;your-access-token&gt;
 Content-Type: application/json
 Accept: application/json</pre>
     </div>
@@ -236,7 +236,7 @@ Accept: application/json</pre>
     <div style="margin-top:14px;">
       <div class="card-title" style="font-size:12px;margin-bottom:8px;">To REMOVE an extension</div>
       <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:11px;">DELETE /api4/extension?key=&lt;uuid&gt;&amp;business=&lt;name&gt;
-Headers: X-API-KEY: ...</pre>
+Headers: Authorization: Bearer &lt;token&gt;</pre>
     </div>
   </div>
 
@@ -271,7 +271,7 @@ Headers: X-API-KEY: ...</pre>
     const opts   = {
       method,
       headers: {
-        'X-API-KEY': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
