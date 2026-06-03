@@ -3,12 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tallo CPA – BIR Tax App</title>
+  <title>Tallo CPA – BIR Setup</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    body { overflow: auto; height: auto; }
+    #app-header { position: sticky; top: 0; z-index: 100; }
+    #setup-wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  </style>
 </head>
 <body>
 
-  <!-- ── TOP HEADER ── -->
   <header id="app-header">
     <div class="logo">
       <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
@@ -16,187 +20,30 @@
         <text x="13" y="18" text-anchor="middle" font-size="13" font-weight="700" fill="white" font-family="sans-serif">₱</text>
       </svg>
       Tallo CPA
-      <span class="badge">BIR</span>
+      <span class="badge">BIR SETUP</span>
     </div>
-
     <div id="business-bar">
       <label for="business-select">Business</label>
-      <select id="business-select">
-        <option value="">Loading…</option>
-      </select>
+      <select id="business-select"><option value="">Loading…</option></select>
     </div>
   </header>
 
-  <!-- ── BODY ── -->
-  <div id="app-body">
+  <div id="setup-wrap">
+    <div id="setup-content">
+      <div class="spinner-wrap"><div class="spinner"></div><span>Connecting to Manager.io…</span></div>
+    </div>
+  </div>
 
-    <!-- ── SIDEBAR ── -->
-    <nav id="sidebar">
-
-      <!-- Dashboard -->
-      <div class="nav-section">
-        <button class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-          <span class="nav-icon">🏠</span> Dashboard
-        </button>
-      </div>
-
-      <div class="nav-divider"></div>
-
-      <!-- BIR Returns -->
-      <div class="nav-section">
-        <div class="nav-section-label">BIR Returns</div>
-
-        <!-- VAT -->
-        <button class="nav-item disabled" data-page="vat-monthly" data-req="vat"
-          onclick="navigate('vat-monthly')">
-          <span class="nav-icon">📋</span> 2550M (Monthly VAT)
-        </button>
-        <button class="nav-item disabled" data-page="vat-quarterly" data-req="vat"
-          onclick="navigate('vat-quarterly')">
-          <span class="nav-icon">📋</span> 2550Q (Quarterly VAT)
-        </button>
-
-        <!-- Percentage Tax -->
-        <button class="nav-item disabled" data-page="2551m" data-req="pt"
-          onclick="navigate('2551m')">
-          <span class="nav-icon">📋</span> 2551M (Monthly PT)
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="2551q" data-req="pt"
-          onclick="navigate('2551q')">
-          <span class="nav-icon">📋</span> 2551Q (Quarterly PT)
-          <span class="badge-soon">Soon</span>
-        </button>
-
-        <!-- Withholding Tax -->
-        <button class="nav-item disabled" data-page="1601c" data-req="compensation"
-          onclick="navigate('1601c')">
-          <span class="nav-icon">📋</span> 1601C (WTC Monthly)
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="ewt-monthly" data-req="expanded"
-          onclick="navigate('ewt-monthly')">
-          <span class="nav-icon">📋</span> 0619E (EWT Monthly)
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="ewt-quarterly" data-req="expanded"
-          onclick="navigate('ewt-quarterly')">
-          <span class="nav-icon">📋</span> 1601EQ (EWT Quarterly)
-          <span class="badge-soon">Soon</span>
-        </button>
-
-        <!-- Income Tax — Individual -->
-        <button class="nav-item disabled" data-page="1701q" data-req="individual"
-          onclick="navigate('1701q')">
-          <span class="nav-icon">📋</span> 1701Q (Indiv. Qtrly)
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="1701" data-req="individual"
-          onclick="navigate('1701')">
-          <span class="nav-icon">📋</span> 1701 (Annual IT)
-          <span class="badge-soon">Soon</span>
-        </button>
-
-        <!-- Income Tax — Non-Individual -->
-        <button class="nav-item disabled" data-page="1702q" data-req="nonindividual"
-          onclick="navigate('1702q')">
-          <span class="nav-icon">📋</span> 1702Q (Corp Qtrly)
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="1702rt" data-req="nonindividual"
-          onclick="navigate('1702rt')">
-          <span class="nav-icon">📋</span> 1702RT (Annual IT)
-          <span class="badge-soon">Soon</span>
-        </button>
-      </div>
-
-      <div class="nav-divider"></div>
-
-      <!-- Reports -->
-      <div class="nav-section">
-        <div class="nav-section-label">Reports</div>
-
-        <button class="nav-item disabled" data-page="sls" data-req="vatpt"
-          onclick="navigate('sls')">
-          <span class="nav-icon">📊</span> SLS
-        </button>
-        <button class="nav-item disabled" data-page="slp" data-req="vatpt"
-          onclick="navigate('slp')">
-          <span class="nav-icon">📊</span> SLP
-        </button>
-        <button class="nav-item disabled" data-page="qap" data-req="expanded"
-          onclick="navigate('qap')">
-          <span class="nav-icon">📊</span> QAP
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item" data-page="sawt"
-          onclick="navigate('sawt')">
-          <span class="nav-icon">📊</span> SAWT
-          <span class="badge-soon">Soon</span>
-        </button>
-      </div>
-
-      <div class="nav-divider"></div>
-
-      <!-- Certificates -->
-      <div class="nav-section">
-        <div class="nav-section-label">Certificates</div>
-
-        <button class="nav-item disabled" data-page="2307" data-req="expanded"
-          onclick="navigate('2307')">
-          <span class="nav-icon">📄</span> Generate 2307
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="2316" data-req="compensation"
-          onclick="navigate('2316')">
-          <span class="nav-icon">📄</span> Generate 2316
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="sss-phic-hdmf" data-req="compensation"
-          onclick="navigate('sss-phic-hdmf')">
-          <span class="nav-icon">👥</span> SSS/PHIC/HDMF
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="1604c" data-req="compensation"
-          onclick="navigate('1604c')">
-          <span class="nav-icon">📋</span> 1604C (Annual Alpha)
-          <span class="badge-soon">Soon</span>
-        </button>
-        <button class="nav-item disabled" data-page="1604e" data-req="expanded"
-          onclick="navigate('1604e')">
-          <span class="nav-icon">📋</span> 1604E (Annual Alpha)
-          <span class="badge-soon">Soon</span>
-        </button>
-      </div>
-
-      <div class="nav-divider"></div>
-
-      <!-- Setup -->
-      <div class="nav-section">
-        <button class="nav-item" data-page="setup" onclick="navigate('setup')">
-          <span class="nav-icon">⚙️</span> Setup
-        </button>
-      </div>
-
-    </nav><!-- /sidebar -->
-
-    <!-- ── CONTENT ── -->
-    <main id="content">
-      <div class="spinner-wrap">
-        <div class="spinner"></div>
-        <span>Connecting to Manager.io…</span>
-      </div>
-    </main>
-
-  </div><!-- /app-body -->
-
-  <!-- ── SCRIPTS ── -->
-  <!-- Extension UUID: 7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d  DO NOT CHANGE after first install -->
+  <!-- Extension UUID: 7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d  DO NOT CHANGE -->
   <script src="atc-codes.js"></script>
-  <script src="app.js"></script>
+  <script src="shared.js"></script>
   <script src="setup.js"></script>
-  <script src="vat.js"></script>
-  <script src="sls-slp.js"></script>
-
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadBusinesses('business-select', () => {
+        renderSetup(document.getElementById('setup-content'));
+      });
+    });
+  </script>
 </body>
 </html>
