@@ -1,388 +1,348 @@
 /* ============================================================
-   Tallo CPA – BIR Tax App for Manager.io
-   app.js  –  Core: postMessage bridge, business selector, routing
+   Tallo CPA - Philippines BIR Extension
+   app.js - Tab switching, business selector, report install,
+            tax code setup + all mapping sections,
+            CF section wiring (lazy mount on tab activate).
+   Mirrors AU extension architecture.
+   Uses postMessage bridge (apiRequest from shared.js).
    ============================================================ */
 
-// ── STATE ────────────────────────────────────────────────────
-const App = {
-  businesses: [],
-  currentBusiness: null,
-  currentPage: 'dashboard',
-  currentParams: {},
-};
-
-// ── POST-MESSAGE BRIDGE ──────────────────────────────────────
-async function apiRequest(method, path, body = null) {
-  return new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID();
-    const timeout = setTimeout(() => {
-      window.removeEventListener('message', handler);
-      reject(new Error('API request timed out'));
-    }, 30000);
-
-    function handler(event) {
-      const d = event.data;
-      if (d?.type?.endsWith('-response') && d?.requestId === requestId) {
-        window.removeEventListener('message', handler);
-        clearTimeout(timeout);
-        if (d.error) reject(new Error(d.error));
-        else resolve(d.body);
-      }
-    }
-
-    window.addEventListener('message', handler);
-    const msg = { type: 'api-request', method, path, requestId };
-    if (body) msg.body = body;
-    window.parent.postMessage(msg, '*');
-  });
+// ?? UTILITIES ????????????????????????????????????????????????
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── FETCH ALL (handles 50-item pagination) ───────────────────
-async function fetchAllBatch(batchPath, businessName) {
-  const all = [];
-  let skip = 0;
-  const PAGE = 50;
-  while (true) {
-    const qs = new URLSearchParams({
-      Business: businessName,
-      Skip: String(skip),
-      PageSize: String(PAGE),
-    }).toString();
-    const res = await apiRequest('GET', `${batchPath}?${qs}`);
-    const items = res?.items || [];
-    all.push(...items);
-    if (items.length < PAGE) break;
-    skip += PAGE;
-  }
-  return all;  // [{key, item}]
-}
+// ?? STORAGE (fallback if shared.js not loaded first) ?????????
+window.getSetup  = window.getSetup  || function(b){ try{ var r=localStorage.getItem('tallocpa_setup_'+b); return r?JSON.parse(r):null; }catch(e){return null;} };
+window.saveSetup = window.saveSetup || function(b,d){ localStorage.setItem('tallocpa_setup_'+b,JSON.stringify(d)); };
 
-// ── BUSINESSES ───────────────────────────────────────────────
-async function loadBusinesses() {
+// ?? BUSINESS SELECTOR ????????????????????????????????????????
+var businessSelect = document.getElementById('business');
+
+(async function loadBusinesses() {
+  if (!businessSelect) return;
   try {
-    const res = await apiRequest('GET', '/api4/businesses');
-    App.businesses = res?.businesses || [];
-
-    const sel = document.getElementById('business-select');
-    if (!sel) return;
-
-    sel.innerHTML = App.businesses.length === 0
-      ? '<option value="">No businesses found</option>'
-      : App.businesses.map(b =>
-          `<option value="${escHtml(b.name)}">${escHtml(b.name)}</option>`
-        ).join('');
-
-    // Restore last selected
-    const last = localStorage.getItem('tallocpa_last_business');
-    if (last && App.businesses.find(b => b.name === last)) {
-      sel.value = last;
+    var res = await apiRequest('GET', '/api4/businesses');
+    var names = (res && res.businesses ? res.businesses : []).map(function(b){ return b.name; }).sort(function(a,b){ return a.localeCompare(b); });
+    if (!names.length) {
+      businessSelect.innerHTML = '<option value="">(no businesses found)</option>';
+      return;
     }
+    businessSelect.innerHTML = '<option value="">-- select a business --</option>' +
+      names.map(function(n){ return '<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'; }).join('');
+    var last = localStorage.getItem('tallocpa_last_biz');
+    if (last && names.indexOf(last) >= 0) businessSelect.value = last;
+    businessSelect.dispatchEvent(new Event('change'));
+  } catch(e) {
+    businessSelect.innerHTML = '<option value="">(could not load)</option>';
+    console.error(e);
+  }
+})();
 
-    App.currentBusiness = sel.value || (App.businesses[0]?.name ?? null);
-    sel.value = App.currentBusiness;
+businessSelect && businessSelect.addEventListener('change', function() {
+  localStorage.setItem('tallocpa_last_biz', businessSelect.value);
+  resetCF();
+  var active = document.querySelector('.tab.active');
+  if (active) activateTab(active.dataset.view);
+});
 
-    sel.addEventListener('change', () => {
-      App.currentBusiness = sel.value;
-      localStorage.setItem('tallocpa_last_business', sel.value);
-      renderContent();
-      updateNavVisibility();
-    });
+function currentBiz() { return businessSelect ? businessSelect.value : ''; }
 
-    updateNavVisibility();
-  } catch (e) {
-    console.error('Failed to load businesses', e);
-    const sel = document.getElementById('business-select');
-    if (sel) sel.innerHTML = '<option value="">⚠ Could not load</option>';
+// ?? TAB SWITCHING ????????????????????????????????????????????
+var allViews = document.querySelectorAll('[id$="-view"]');
+var cfLoaded = {};
+var cfControllers = {};
+
+function activateTab(view) {
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === view); });
+  allViews.forEach(function(v){ v.hidden = v.id !== (view + '-view'); });
+
+  var biz = currentBiz();
+  if (view === 'reports')       renderReportsTab(biz);
+  if (view === 'business')      lazyMountCF('business',     biz);
+  if (view === 'customers')     lazyMountCF('customers',    biz);
+  if (view === 'suppliers')     lazyMountCF('suppliers',    biz);
+  if (view === 'employees')     lazyMountCF('employees',    biz);
+  if (view === 'payslip-items') lazyMountCF('payslipItems', biz);
+}
+
+document.querySelectorAll('.tab').forEach(function(t){
+  t.addEventListener('click', function(){ activateTab(t.dataset.view); });
+});
+
+function lazyMountCF(section, biz) {
+  if (!biz || typeof CF === 'undefined') return;
+  var key = biz + '__' + section;
+  if (cfLoaded[key]) return;
+  cfLoaded[key] = true;
+
+  if (section === 'business') {
+    cfControllers.business = CF.mountBusiness(document.getElementById('business-view'));
+    cfControllers.business.refresh();
+  } else if (section === 'customers') {
+    cfControllers.customers = CF.mountParty(document.getElementById('customers-view'), 'customer');
+    cfControllers.customers.refresh();
+  } else if (section === 'suppliers') {
+    cfControllers.suppliers = CF.mountParty(document.getElementById('suppliers-view'), 'supplier');
+    cfControllers.suppliers.refresh();
+  } else if (section === 'employees') {
+    cfControllers.employees = CF.mountEmployees(document.getElementById('employees-view'));
+    cfControllers.employees.refresh();
+  } else if (section === 'payslipItems') {
+    cfControllers.payslipItems = CF.mountPayslipItems(document.getElementById('payslip-items-view'));
+    cfControllers.payslipItems.refresh();
   }
 }
 
-// ── SETUP HELPERS ────────────────────────────────────────────
-function getSetup(businessName) {
-  try {
-    const raw = localStorage.getItem(`tallocpa_setup_${businessName}`);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-function saveSetup(businessName, data) {
-  localStorage.setItem(`tallocpa_setup_${businessName}`, JSON.stringify(data));
-}
-
-function getCustomers(businessName) {
-  try {
-    const raw = localStorage.getItem(`tallocpa_customers_${businessName}`);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-}
-
-function saveCustomers(businessName, data) {
-  localStorage.setItem(`tallocpa_customers_${businessName}`, JSON.stringify(data));
-}
-
-function getSuppliers(businessName) {
-  try {
-    const raw = localStorage.getItem(`tallocpa_suppliers_${businessName}`);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-}
-
-function saveSuppliers(businessName, data) {
-  localStorage.setItem(`tallocpa_suppliers_${businessName}`, JSON.stringify(data));
-}
-
-// ── NAV VISIBILITY (based on setup) ──────────────────────────
-function updateNavVisibility() {
-  const setup = App.currentBusiness ? getSetup(App.currentBusiness) : null;
-  const wt = setup?.withholdingTypes || [];
-  const st = setup?.salesTaxType || 'none';
-  const cl = setup?.classification || 'Non-Individual';
-
-  // VAT items
-  document.querySelectorAll('[data-req="vat"]').forEach(el => {
-    el.classList.toggle('disabled', st !== 'vat');
-  });
-  // PT items
-  document.querySelectorAll('[data-req="pt"]').forEach(el => {
-    el.classList.toggle('disabled', st !== 'pt');
-  });
-  // Compensation WT
-  document.querySelectorAll('[data-req="compensation"]').forEach(el => {
-    el.classList.toggle('disabled', !wt.includes('compensation'));
-  });
-  // Expanded WT
-  document.querySelectorAll('[data-req="expanded"]').forEach(el => {
-    el.classList.toggle('disabled', !wt.includes('expanded'));
-  });
-  // Individual-only
-  document.querySelectorAll('[data-req="individual"]').forEach(el => {
-    el.classList.toggle('disabled', cl !== 'Individual');
-  });
-  // Non-individual-only
-  document.querySelectorAll('[data-req="nonindividual"]').forEach(el => {
-    el.classList.toggle('disabled', cl !== 'Non-Individual');
-  });
-  // SLS/SLP (VAT or PT)
-  document.querySelectorAll('[data-req="vatpt"]').forEach(el => {
-    el.classList.toggle('disabled', st === 'none');
+function resetCF() {
+  Object.keys(cfLoaded).forEach(function(k){ delete cfLoaded[k]; });
+  cfControllers = {};
+  ['business-view','customers-view','suppliers-view','employees-view','payslip-items-view'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = '';
   });
 }
 
-// ── ROUTING ──────────────────────────────────────────────────
-function navigate(page, params = {}) {
-  App.currentPage = page;
-  App.currentParams = params;
+// ?? REPORTS TAB ??????????????????????????????????????????????
+// All reports are shown regardless of tax type ? user decides what to install.
+var _installed = [];
 
-  // Update nav active state
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-
-  renderContent();
-}
-
-function renderContent() {
-  const el = document.getElementById('content');
-  if (!el) return;
-
-  if (!App.currentBusiness) {
-    el.innerHTML = `<div class="empty-state">
-      <div class="icon">🏢</div>
-      <h3>No Business Selected</h3>
-      <p>Please select a business from the dropdown above.</p>
-    </div>`;
+async function renderReportsTab(biz) {
+  var container = document.getElementById('report-install-list');
+  if (!container) return;
+  if (!biz) {
+    container.innerHTML = '<p class="muted">Select a business above to see report status.</p>';
     return;
   }
-
-  const page = App.currentPage;
-
-  if (page === 'dashboard')   return renderDashboard(el);
-  if (page === 'setup')       return renderSetup(el);
-  if (page === 'sls')         return renderSLS(el);
-  if (page === 'slp')         return renderSLP(el);
-  if (page === 'vat-monthly') return renderVATReturn(el, 'monthly');
-  if (page === 'vat-quarterly') return renderVATReturn(el, 'quarterly');
-
-  // Coming soon pages
-  el.innerHTML = comingSoon(page);
+  container.innerHTML = '<div class="status">Loading...</div>';
+  try {
+    var res = await apiRequest('GET', '/api4/extension-batch?Business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
+    _installed = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
+  } catch(e) { _installed = []; }
+  buildReportTable(biz, container);
 }
 
-function comingSoon(page) {
-  const labels = {
-    'ewt-monthly': 'EWT Monthly (0619E)',
-    'ewt-quarterly': 'EWT Quarterly (1601EQ)',
-    '1601c': 'Withholding Tax on Compensation (1601C)',
-    '2551m': 'Percentage Tax Monthly (2551M)',
-    '2551q': 'Percentage Tax Quarterly (2551Q)',
-    '1702q': 'Quarterly Income Tax (1702Q)',
-    '1702rt': 'Annual Income Tax (1702RT)',
-    '1701q': 'Quarterly Income Tax (1701Q)',
-    '1701': 'Annual Income Tax (1701)',
-    '1604c': 'Annual Alphalist — Compensation (1604C)',
-    '1604e': 'Annual Alphalist — EWT (1604E)',
-    'qap': 'Quarterly Alphalist of Payees (QAP)',
-    'sawt': 'Summary Alphalist of Withholding Taxes (SAWT)',
-    '2307': 'Generate BIR Form 2307',
-    '2316': 'Generate BIR Form 2316',
-    'sss-phic-hdmf': 'SSS / PhilHealth / Pag-IBIG Remittance',
-  };
-  const label = labels[page] || page;
-  return `<div class="coming-soon">
-    <div class="cs-icon">🚧</div>
-    <h2>${escHtml(label)}</h2>
-    <p>This module is part of the next phase and will be available soon.</p>
-    <span class="cs-badge">PHASE 2</span>
-  </div>`;
-}
+function buildReportTable(biz, container) {
+  var groups = {};
+  REPORTS.forEach(function(r) {
+    if (!groups[r.group]) groups[r.group] = [];
+    groups[r.group].push(r);
+  });
 
-// ── DASHBOARD ────────────────────────────────────────────────
-function renderDashboard(el) {
-  const setup = getSetup(App.currentBusiness);
-  const wt = setup?.withholdingTypes || [];
-  const st = setup?.salesTaxType || 'none';
-  const cl = setup?.classification || 'Non-Individual';
+  var html = '';
+  Object.keys(groups).forEach(function(group) {
+    var list = groups[group];
+    html += '<h3 style="margin:18px 0 6px;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:.5px solid #e5e7eb;padding-bottom:4px;">'+escHtml(group)+'</h3>';
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
+    html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Report</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
 
-  const now = new Date();
-  const month = now.toLocaleString('en-PH', { month: 'long' });
-  const year = now.getFullYear();
+    list.forEach(function(r) {
+      var ep = reportEndpoint(r);
+      var inst = _installed.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === ep; });
+      var badge, action;
+      if (!r.available) {
+        var label = r.phase >= 3 ? 'Phase 3' : 'Phase 2';
+        badge  = '<span style="font-size:10px;background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:10px;">'+label+'</span>';
+        action = '<button class="secondary" disabled style="opacity:.4;font-size:11px;">Install</button>';
+      } else if (inst) {
+        badge  = '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Installed</span>';
+        action = '<button class="secondary" data-action="uninstall" data-key="'+escHtml(inst.key)+'" style="font-size:11px;">Uninstall</button>';
+      } else {
+        badge  = '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not installed</span>';
+        action = '<button class="secondary" data-action="install" data-name="'+escHtml(r.name)+'" data-ep="'+escHtml(ep)+'" style="font-size:11px;">Install</button>';
+      }
+      html += '<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:7px 8px;font-size:12px;font-weight:500;">'+escHtml(r.name)+'</td><td style="padding:7px 8px;text-align:center;">'+badge+'</td><td style="padding:7px 8px;text-align:center;">'+action+'</td></tr>';
+    });
+    html += '</tbody></table>';
+  });
 
-  el.innerHTML = `
-    <div class="page-header">
-      <div>
-        <div class="page-title">Dashboard</div>
-        <div class="page-subtitle">${escHtml(App.currentBusiness)} &mdash; ${month} ${year}</div>
-      </div>
-    </div>
-
-    ${!setup ? `<div class="setup-required">
-      <span>⚠️</span>
-      <div><strong>Setup Required</strong> — Please configure this business before generating returns.</div>
-      <button class="btn btn-primary btn-sm" onclick="navigate('setup')">Go to Setup</button>
-    </div>` : ''}
-
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Taxpayer</div>
-        <div class="stat-value small">${escHtml(setup?.taxpayerName || '—')}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">TIN</div>
-        <div class="stat-value small">${escHtml(setup?.tin || '—')}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">RDO Code</div>
-        <div class="stat-value">${escHtml(setup?.rdoCode || '—')}</div>
-      </div>
-      <div class="stat-card ${st === 'vat' ? '' : 'red'}">
-        <div class="stat-label">Sales Tax</div>
-        <div class="stat-value small">${st === 'vat' ? 'VAT' : st === 'pt' ? 'Percentage Tax' : 'None'}</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📋 Quick Access — Returns</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">
-        ${quickBtn('VAT Monthly (2550M)', 'vat-monthly', st === 'vat')}
-        ${quickBtn('VAT Quarterly (2550Q)', 'vat-quarterly', st === 'vat')}
-        ${quickBtn('EWT Monthly (0619E)', 'ewt-monthly', wt.includes('expanded'))}
-        ${quickBtn('EWT Quarterly (1601EQ)', 'ewt-quarterly', wt.includes('expanded'))}
-        ${quickBtn('WTC Monthly (1601C)', '1601c', wt.includes('compensation'))}
-        ${cl === 'Individual'
-          ? quickBtn('Income Tax Qtrly (1701Q)', '1701q', true) + quickBtn('Income Tax Annual (1701)', '1701', true)
-          : quickBtn('Income Tax Qtrly (1702Q)', '1702q', true) + quickBtn('Income Tax Annual (1702RT)', '1702rt', true)}
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📊 Quick Access — Reports</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">
-        ${quickBtn('Summary List of Sales', 'sls', st !== 'none')}
-        ${quickBtn('Summary List of Purchases', 'slp', st !== 'none')}
-        ${quickBtn('QAP', 'qap', wt.includes('expanded'))}
-        ${quickBtn('SAWT', 'sawt', true)}
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📄 Quick Access — Certificates</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">
-        ${quickBtn('Generate Form 2307', '2307', wt.includes('expanded'))}
-        ${quickBtn('Generate Form 2316', '2316', wt.includes('compensation'))}
-        ${quickBtn('SSS/PhilHealth/Pag-IBIG', 'sss-phic-hdmf', wt.includes('compensation'))}
-      </div>
-    </div>
-  `;
-}
-
-function quickBtn(label, page, enabled) {
-  if (enabled) {
-    return `<button class="btn btn-outline" style="justify-content:flex-start;font-size:11px;padding:8px 10px;"
-      onclick="navigate('${page}')">${escHtml(label)}</button>`;
-  }
-  return `<button class="btn btn-outline" style="justify-content:flex-start;font-size:11px;padding:8px 10px;opacity:0.4;cursor:not-allowed;" disabled>${escHtml(label)}</button>`;
-}
-
-// ── UTILITY ──────────────────────────────────────────────────
-function escHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function fmt(n, decimals = 2) {
-  if (n == null || isNaN(n)) return '—';
-  return Number(n).toLocaleString('en-PH', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
+  container.innerHTML = html;
+  container.querySelectorAll('button[data-action]').forEach(function(btn){
+    btn.addEventListener('click', function(){ onReportAction(btn, biz); });
   });
 }
 
-function fmtDate(dateStr) {
-  if (!dateStr) return '—';
+async function onReportAction(btn, biz) {
+  var action = btn.dataset.action;
+  btn.disabled = true;
+  btn.textContent = action === 'install' ? 'Installing...' : 'Uninstalling...';
   try {
-    return new Date(dateStr).toLocaleDateString('en-PH', {
-      year: 'numeric', month: 'short', day: 'numeric',
+    if (action === 'install') {
+      await apiRequest('POST', '/api4/extension', {
+        Business: biz,
+        Value: { Name: btn.dataset.name, Source: 0, Endpoint: btn.dataset.ep, Placement: 'reports' }
+      });
+    } else {
+      await apiRequest('DELETE', '/api4/extension?Business='+encodeURIComponent(biz)+'&Key='+encodeURIComponent(btn.dataset.key));
+    }
+    await renderReportsTab(biz);
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = action === 'install' ? 'Install' : 'Uninstall';
+    alert('Failed: ' + err.message);
+  }
+}
+
+// ?? TAX CODES TAB ????????????????????????????????????????????
+var _taxCodes = [];
+
+var refreshBtn = document.getElementById('refreshSetup');
+if (refreshBtn) refreshBtn.addEventListener('click', loadTaxCodesTab);
+
+async function loadTaxCodesTab() {
+  var biz = currentBiz();
+  var out = document.getElementById('setupOutput');
+  if (!biz) { out.innerHTML = '<div class="error">Please select a business.</div>'; return; }
+  out.innerHTML = '<div class="status">Loading tax codes...</div>';
+  try {
+    var res = await apiRequest('GET', '/api4/tax-code-batch?Business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
+    _taxCodes = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
+  } catch(err) {
+    out.innerHTML = '<div class="error">Failed: ' + escHtml(err.message) + '</div>';
+    return;
+  }
+  renderTaxCodesOutput(biz, out);
+}
+
+function renderTaxCodesOutput(biz, out) {
+  var setup  = getSetup(biz) || {};
+  var vatMap = setup.vatMapping || {};
+  var ewtMap = setup.ewtMapping || {};
+  var fwtMap = setup.fwtMapping || {};
+  var ptMap  = setup.ptMapping  || {};
+
+  var tcOpts = '<option value="">-- not mapped --</option>' +
+    _taxCodes.map(function(tc){
+      return '<option value="'+escHtml(tc.key)+'">'+escHtml(tc.value.Name || tc.value.name || tc.key)+'</option>';
+    }).join('');
+
+  // 1. Tax code templates
+  var groups = {};
+  TAX_CODE_TEMPLATES.forEach(function(t){
+    if (!groups[t.group]) groups[t.group] = [];
+    groups[t.group].push(t);
+  });
+
+  var html = sectionHeading('Tax code templates', '');
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;">';
+  html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;">Name</th><th style="padding:5px 8px;">Rate</th><th style="padding:5px 8px;">Group</th><th style="padding:5px 8px;">Status</th><th></th></tr></thead><tbody>';
+
+  Object.keys(groups).forEach(function(g){
+    groups[g].forEach(function(tpl){
+      var match = _taxCodes.find(function(tc){
+        return (tc.value.Name||tc.value.name||'').toLowerCase() === tpl.Name.toLowerCase();
+      });
+      html += '<tr style="border-bottom:.5px solid #f3f4f6;">';
+      html += '<td style="padding:6px 8px;font-size:12px;font-weight:500;">'+escHtml(tpl.Name)+'</td>';
+      html += '<td style="padding:6px 8px;font-size:12px;">'+tpl.Rate+'%</td>';
+      html += '<td style="padding:6px 8px;font-size:11px;color:#9ca3af;">'+escHtml(tpl.group)+'</td>';
+      html += '<td style="padding:6px 8px;">'+(match
+        ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Configured</span>'
+        : '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not present</span>')+'</td>';
+      html += '<td style="padding:6px 8px;">'+(match
+        ? '<button class="secondary" disabled style="opacity:.4;font-size:11px;">OK</button>'
+        : '<button class="secondary" data-action="create-tc" data-name="'+escHtml(tpl.Name)+'" data-rate="'+tpl.Rate+'" style="font-size:11px;">Create</button>')+'</td>';
+      html += '</tr>';
     });
-  } catch { return dateStr; }
+  });
+  html += '</tbody></table>';
+
+  // 2. VAT Mapping
+  html += sectionHeading('VAT Mapping', '');
+  html += buildMappingTable('vat', VAT_CATEGORIES.map(function(c){
+    return { key: c.key, label: c.label, sub: c.side === 'sales' ? 'Sales' : 'Purchase', selected: vatMap[c.key] || '' };
+  }), tcOpts);
+  html += saveMappingBtn('vat', 'Save VAT Mapping');
+
+  // 3. EWT / CWT Mapping
+  html += sectionHeading('EWT / CWT Mapping', 'Purchases (0619E, 1601EQ, QAP) and sales / receipts (SAWT, 2307)');
+  html += '<p style="font-size:11px;font-weight:500;color:#6b7280;margin:0 0 4px;">Individual</p>';
+  html += buildMappingTable('ewt', EWT_ATC_LIST.filter(function(a){ return a.type==='Individual'; }).map(function(a){
+    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: ewtMap[a.atc] || '' };
+  }), tcOpts);
+  html += '<p style="font-size:11px;font-weight:500;color:#6b7280;margin:12px 0 4px;">Non-Individual</p>';
+  html += buildMappingTable('ewt', EWT_ATC_LIST.filter(function(a){ return a.type==='Non-Individual'; }).map(function(a){
+    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: ewtMap[a.atc] || '' };
+  }), tcOpts);
+  html += saveMappingBtn('ewt', 'Save EWT / CWT Mapping');
+
+  // 4. FWT Mapping
+  html += sectionHeading('FWT Mapping', '');
+  html += buildMappingTable('fwt', FWT_ATC_LIST.map(function(a){
+    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: fwtMap[a.atc] || '' };
+  }), tcOpts);
+  html += saveMappingBtn('fwt', 'Save FWT Mapping');
+
+  // 5. Percentage Tax Mapping
+  html += sectionHeading('Percentage Tax Mapping', '');
+  html += buildMappingTable('pt', PT_ATC_LIST.map(function(a){
+    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: ptMap[a.atc] || '' };
+  }), tcOpts);
+  html += saveMappingBtn('pt', 'Save Percentage Tax Mapping');
+
+  out.innerHTML = html;
+
+  out.querySelectorAll('[data-action="create-tc"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ onCreateTaxCode(btn, biz, out); });
+  });
+  out.querySelectorAll('[data-save-mapping]').forEach(function(btn){
+    btn.addEventListener('click', function(){ onSaveMapping(btn, biz); });
+  });
 }
 
-function monthName(m) {  // m = 0-based
-  return ['January','February','March','April','May','June',
-          'July','August','September','October','November','December'][m] || '';
+function sectionHeading(title, sub) {
+  return '<h3 style="margin:0 0 8px;font-size:13px;font-weight:500;border-bottom:.5px solid #e5e7eb;padding-bottom:6px;">'+escHtml(title)+
+    (sub ? '<small style="font-weight:400;font-size:11px;color:#9ca3af;margin-left:8px;">'+escHtml(sub)+'</small>' : '')+
+    '</h3>';
 }
 
-function quarterLabel(q) { // q = 1-4
-  return `Q${q} (${[['Jan','Mar'],['Apr','Jun'],['Jul','Sep'],['Oct','Dec']][q-1].join('–')})`;
+function buildMappingTable(prefix, rows, tcOpts) {
+  var html = '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">';
+  html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;width:40%;">BIR Category</th><th style="padding:5px 8px;text-align:center;width:10%;"></th><th style="padding:5px 8px;font-weight:500;">Tax code in Manager</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var opts = tcOpts.replace('value="'+escHtml(r.selected)+'"', 'value="'+escHtml(r.selected)+'" selected');
+    html += '<tr style="border-bottom:.5px solid #f3f4f6;">';
+    html += '<td style="padding:6px 8px;font-size:12px;font-weight:500;">'+escHtml(r.label)+'</td>';
+    html += '<td style="padding:6px 8px;font-size:10px;color:#9ca3af;text-align:center;">'+escHtml(r.sub||'')+'</td>';
+    html += '<td style="padding:6px 8px;"><select class="mapping-sel" data-prefix="'+prefix+'" data-key="'+escHtml(r.key)+'" style="width:100%;font-size:12px;">'+opts+'</select></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
 }
 
-// Period start/end dates
-function getPeriodDates(type, period, year) {
-  if (type === 'monthly') {
-    const m = parseInt(period, 10);  // 0-based
-    const start = new Date(year, m, 1);
-    const end   = new Date(year, m + 1, 0);
-    return { start, end };
+function saveMappingBtn(prefix, label) {
+  return '<div style="display:flex;justify-content:flex-end;margin-bottom:28px;"><button class="primary" data-save-mapping="'+prefix+'" style="font-size:12px;">'+escHtml(label)+'</button></div>';
+}
+
+async function onCreateTaxCode(btn, biz, out) {
+  btn.disabled = true; btn.textContent = 'Creating...';
+  try {
+    await apiRequest('POST', '/api4/tax-code', {
+      Business: biz,
+      Value: { Name: btn.dataset.name, Rate: parseFloat(btn.dataset.rate) / 100 }
+    });
+    await loadTaxCodesTab();
+  } catch(err) {
+    btn.disabled = false; btn.textContent = 'Create';
+    alert('Failed: ' + err.message);
   }
-  if (type === 'quarterly') {
-    const q = parseInt(period, 10);  // 1-based
-    const startM = (q - 1) * 3;
-    const start  = new Date(year, startM, 1);
-    const end    = new Date(year, startM + 3, 0);
-    return { start, end };
-  }
-  return { start: new Date(year, 0, 1), end: new Date(year, 11, 31) };
 }
 
-function inRange(dateStr, start, end) {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  return d >= start && d <= end;
+function onSaveMapping(btn, biz) {
+  var prefix = btn.dataset.saveMapping;
+  var captured = {};
+  document.querySelectorAll('.mapping-sel[data-prefix="'+prefix+'"]').forEach(function(sel){
+    captured[sel.dataset.key] = sel.value;
+  });
+  var keyMap = { vat:'vatMapping', ewt:'ewtMapping', fwt:'fwtMapping', pt:'ptMapping' };
+  var existing = getSetup(biz) || {};
+  // EWT has two tables (Individual + Non-Individual) - merge instead of overwrite
+  var merged = prefix === 'ewt'
+    ? Object.assign({}, existing.ewtMapping || {}, captured)
+    : captured;
+  saveSetup(biz, Object.assign({}, existing, { [keyMap[prefix]]: merged }));
+  var orig = btn.textContent;
+  btn.textContent = 'Saved'; btn.disabled = true;
+  setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1500);
 }
-
-// ── INIT ─────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', async () => {
-  await loadBusinesses();
-  navigate('dashboard');
-});
