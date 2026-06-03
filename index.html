@@ -2,48 +2,89 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tallo CPA – BIR Setup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Philippines BIR</title>
   <link rel="stylesheet" href="styles.css">
-  <style>
-    body { overflow: auto; height: auto; }
-    #app-header { position: sticky; top: 0; z-index: 100; }
-    #setup-wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
-  </style>
 </head>
 <body>
 
-  <header id="app-header">
-    <div class="logo">
-      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-        <rect width="26" height="26" rx="6" fill="#c0392b"/>
-        <text x="13" y="18" text-anchor="middle" font-size="13" font-weight="700" fill="white" font-family="sans-serif">₱</text>
-      </svg>
-      Tallo CPA
-      <span class="badge">BIR SETUP</span>
-    </div>
-    <div id="business-bar">
-      <label for="business-select">Business</label>
-      <select id="business-select"><option value="">Loading…</option></select>
-    </div>
-  </header>
+<h1>&#127477;&#127469; Philippines BIR</h1>
 
-  <div id="setup-wrap">
-    <div id="setup-content">
-      <div class="spinner-wrap"><div class="spinner"></div><span>Connecting to Manager.io…</span></div>
-    </div>
+<div class="tabs">
+  <button type="button" class="tab active" data-view="welcome">Welcome</button>
+  <button type="button" class="tab" data-view="reports">Reports</button>
+  <button type="button" class="tab" data-view="setup">Tax codes</button>
+  <button type="button" class="tab" data-view="business">Business</button>
+  <button type="button" class="tab" data-view="customers">Customers</button>
+  <button type="button" class="tab" data-view="suppliers">Suppliers</button>
+  <button type="button" class="tab" data-view="employees">Employees</button>
+  <button type="button" class="tab" data-view="payslip-items">Payslip items</button>
+</div>
+
+<div class="business-bar">
+  <label>Business
+    <select id="business" required></select>
+  </label>
+</div>
+
+<!-- ── WELCOME ──────────────────────────────────────────────── -->
+<div id="welcome-view">
+  <p>This extension helps Philippine businesses generate BIR-compliant tax returns
+  and reports using data already in Manager.io — no double-entry needed.</p>
+  <h2>Reports</h2>
+  <p>Install BIR report buttons into any business. Once installed, each report appears
+  under that business's <strong>Reports</strong> tab. Reports marked <em>Coming soon</em>
+  are planned for a future phase.</p>
+  <h2>Tax codes</h2>
+  <p>Create standard PH tax codes with one click. Also contains mapping sections for
+  VAT, EWT / CWT, FWT, and Percentage Tax — configure once and all reports read from
+  them automatically.</p>
+  <h2>Business / Customers / Suppliers / Employees</h2>
+  <p>BIR fields (TIN, RDO Code, classification, names, addresses, SSS / PhilHealth /
+  Pag-IBIG numbers) stored directly in Manager records. Fill once; all reports use them.</p>
+  <h2>Payslip items</h2>
+  <p>Assign payslip items to BIR reporting categories so values flow into 1601C, SAWT,
+  and 2316 correctly.</p>
+  <p class="muted">Select a business above, then switch to any tab to get started.</p>
+</div>
+
+<!-- ── REPORTS ──────────────────────────────────────────────── -->
+<div id="reports-view" hidden>
+  <p class="muted">Install a BIR report for the selected business to make it available
+  under that business's <strong>Reports</strong> tab.</p>
+  <div id="report-install-list"></div>
+</div>
+
+<!-- ── TAX CODES ────────────────────────────────────────────── -->
+<div id="setup-view" hidden>
+  <div class="setup-actions">
+    <button type="button" id="refreshSetup" class="primary">Load status</button>
+    <span class="muted">Per-row buttons create one tax code at a time in the selected business.</span>
   </div>
+  <div id="setupOutput"></div>
+</div>
 
-  <!-- Extension UUID: 7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d  DO NOT CHANGE -->
-  <script src="atc-codes.js"></script>
-  <script src="shared.js"></script>
-  <script src="setup.js"></script>
-  <script>
-    document.addEventListener('DOMContentLoaded', async () => {
-      await loadBusinesses('business-select', () => {
-        renderSetup(document.getElementById('setup-content'));
-      });
-    });
-  </script>
+<!-- ── BUSINESS ─────────────────────────────────────────────── -->
+<div id="business-view" hidden></div>
+
+<!-- ── CUSTOMERS ────────────────────────────────────────────── -->
+<div id="customers-view" hidden></div>
+
+<!-- ── SUPPLIERS ────────────────────────────────────────────── -->
+<div id="suppliers-view" hidden></div>
+
+<!-- ── EMPLOYEES ────────────────────────────────────────────── -->
+<div id="employees-view" hidden></div>
+
+<!-- ── PAYSLIP ITEMS ─────────────────────────────────────────── -->
+<div id="payslip-items-view" hidden></div>
+
+<!-- Extension UUID: 7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d  DO NOT CHANGE -->
+<script src="shared.js"></script>
+<script src="reports.js"></script>
+<script src="tax-codes.js"></script>
+<script src="custom-fields.js"></script>
+<script src="app.js"></script>
+
 </body>
 </html>
