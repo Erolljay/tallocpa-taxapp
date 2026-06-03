@@ -59,6 +59,7 @@ function renderSetup(el) {
     const tab = btn.dataset.tab;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    if (tab === 'pkgs')      reRenderPackagesTab();
     if (tab === 'vat')       loadVATMappingTab();
     if (tab === 'customers') loadPartyTab('customers');
     if (tab === 'suppliers') loadPartyTab('suppliers');
@@ -202,7 +203,7 @@ function saveBusinessInfo(e) {
     ? [lastName, firstName, middleName].filter(Boolean).join(', ')
     : companyName;
 
-  saveSetup(App.currentBusiness, {
+  const updatedSetup = {
     ...existing,
     taxpayerName, companyName, lastName, firstName, middleName,
     tin:         document.getElementById('si-tin').value.trim(),
@@ -214,9 +215,14 @@ function saveBusinessInfo(e) {
     incomeTaxType: document.querySelector('input[name=incomeTaxType]:checked')?.value || 'graduated',
     salesTaxType:  document.querySelector('input[name=salesTaxType]:checked')?.value || 'none',
     withholdingTypes: wt,
-  });
-  showToast('✅ Business info saved.');
+  };
+  saveSetup(App.currentBusiness, updatedSetup);
+  showToast('✅ Business info saved.', 'success');
+  // Re-render packages tab so it reflects the new tax types immediately
+  reRenderPackagesTab();
 }
+
+
 
 // ── TAB: PACKAGES ─────────────────────────────────────────────
 function renderPackagesTab(setup) {
@@ -281,6 +287,12 @@ function renderPackagesTab(setup) {
     </div>`;
 }
 
+function reRenderPackagesTab() {
+  const setup = getSetup(App.currentBusiness) || {};
+  const panel = document.getElementById('tab-pkgs');
+  if (panel) panel.innerHTML = renderPackagesTab(setup);
+}
+
 function copyURL(url) {
   navigator.clipboard?.writeText(url).then(() => showToast('✅ URL copied to clipboard.', 'success'))
     .catch(() => showToast('Copy: ' + url));
@@ -290,22 +302,24 @@ async function installPackage(pkgId, name, url, uuid) {
   const btn = document.getElementById(`install-${pkgId}`);
   if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
   try {
-    await apiRequest('PUT', '/api4/custom-button', {
-      key: uuid,
-      value: { name, source: 1, endpoint: url, placement: 'report-view' },
-      business: App.currentBusiness,
+    // PUT /api4/custom-button-form/{key} — fields go directly, no value:{} wrapper
+    await apiRequest('PUT', `/api4/custom-button-form/${uuid}`, {
+      Name:     name,
+      Source:   1,
+      Endpoint: url,
     });
-    // Mark as installed
+    // Mark as installed in local setup
     const existing = getSetup(App.currentBusiness) || {};
     const inst = existing.installedPackages || [];
     if (!inst.includes(pkgId)) inst.push(pkgId);
     saveSetup(App.currentBusiness, { ...existing, installedPackages: inst });
-    showToast(`✅ "${name}" installed. Refresh Manager to see it.`, 'success');
+    showToast(`✅ "${name}" installed. Refresh Manager to see it under Reports → Custom Buttons.`, 'success');
     if (btn) { btn.textContent = '🔄 Reinstall'; btn.disabled = false; }
-  } catch {
-    // Fallback: copy URL
+    reRenderPackagesTab();
+  } catch (err) {
+    // Fallback: copy URL to clipboard
     navigator.clipboard?.writeText(url);
-    showToast(`⚠️ Auto-install not supported. URL copied — paste in Settings → Custom Buttons.`, 'err');
+    showToast(`⚠️ Install failed (${err.message}). URL copied — paste manually in Settings → Custom Buttons.`, 'err');
     if (btn) { btn.textContent = '⚡ Install'; btn.disabled = false; }
   }
 }
@@ -315,10 +329,10 @@ async function fetchTaxCodes(businessName) {
   const all = [];
   let skip = 0;
   while (true) {
-    const qs  = new URLSearchParams({ Business: businessName, pageSize: '50', skip: String(skip) }).toString();
+    const qs  = new URLSearchParams({ business: businessName, pageSize: '50', skip: String(skip) }).toString();
     const res = await apiRequest('GET', `/tax-codes?${qs}`);
-    const page = Array.isArray(res) ? res : (res?.items || []);
-    if (!page.length) break;
+    const page = Array.isArray(res) ? res : (res?.items || res || []);
+    if (!Array.isArray(page) || !page.length) break;
     all.push(...page);
     if (page.length < 50) break;
     skip += 50;
@@ -464,11 +478,10 @@ async function fetchPartyList(type, businessName) {
   const all = [];
   let skip = 0;
   while (true) {
-    const qs  = new URLSearchParams({ Business: businessName, pageSize: '50', skip: String(skip) }).toString();
+    const qs  = new URLSearchParams({ business: businessName, pageSize: '50', skip: String(skip) }).toString();
     const res = await apiRequest('GET', `/${endpoint}?${qs}`);
-    // Response may be array directly or wrapped in { items: [] }
-    const page = Array.isArray(res) ? res : (res?.items || []);
-    if (!page.length) break;
+    const page = Array.isArray(res) ? res : (res?.items || res || []);
+    if (!Array.isArray(page) || !page.length) break;
     all.push(...page);
     if (page.length < 50) break;
     skip += 50;
