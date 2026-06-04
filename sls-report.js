@@ -6,18 +6,29 @@
 
 let _slRows = [];
 
-function initSLReport(type) {
-  const biz   = localStorage.getItem('tallocpa_last_business') || '';
-  const setup = biz ? getSetup(biz) : null;
-  const isSLS = type === 'sls';
-
+async function initSLReport(type) {
   const filterEl = document.getElementById('filter-area');
   const outputEl = document.getElementById('report-output');
+  const isSLS    = type === 'sls';
 
-  if (!biz || !setup) {
-    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ No business selected. Open <strong>Tallo CPA Setup</strong> first.</div>`;
+  // Detect business from Manager context
+  let biz;
+  try {
+    biz = await getReportBusiness(document.getElementById('biz-selector-wrap'));
+    App.currentBusiness = biz;
+  } catch(e) {
+    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Could not connect to Manager: ${escHtml(e.message)}</div>`;
     return;
   }
+
+  outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading business setup…</span></div>`;
+  const setup = await loadSetup(biz);
+
+  if (!setup) {
+    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Tallo CPA extension first.</div>`;
+    return;
+  }
+  outputEl.innerHTML = '';
 
   const now  = new Date();
   const curQ = Math.ceil((now.getMonth() + 1) / 3);
@@ -108,8 +119,10 @@ async function generateSL(type, biz, setup, outputEl) {
 
 // ── BUILD ROWS ────────────────────────────────────────────────
 async function buildSLSRows(biz, start, end, vm) {
-  const items   = await fetchAllBatch('/api4/sales-invoice-batch', biz);
-  const custMap = getCustomers(biz);
+  const [items, custMap] = await Promise.all([
+    fetchAllBatch('/api4/sales-invoice-batch', biz),
+    loadPartyBIR(biz, 'customer'),
+  ]);
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
@@ -139,8 +152,10 @@ async function buildSLSRows(biz, start, end, vm) {
 }
 
 async function buildSLPRows(biz, start, end, vm) {
-  const items   = await fetchAllBatch('/api4/purchase-invoice-batch', biz);
-  const suppMap = getSuppliers(biz);
+  const [items, suppMap] = await Promise.all([
+    fetchAllBatch('/api4/purchase-invoice-batch', biz),
+    loadPartyBIR(biz, 'supplier'),
+  ]);
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
