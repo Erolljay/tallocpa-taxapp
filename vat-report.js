@@ -3,18 +3,26 @@
    vat-report.js  –  Shared VAT return logic for 2550M and 2550Q
    ============================================================ */
 
-function initVATReport(mode, filterAreaId, outputId) {
-  // Need business from localStorage since we're in a report context
-  const biz = localStorage.getItem('tallocpa_last_business') || '';
-  const setup = biz ? getSetup(biz) : null;
-
+async function initVATReport(mode, filterAreaId, outputId) {
   const filterEl = document.getElementById(filterAreaId);
   const outputEl = document.getElementById(outputId);
 
-  if (!biz || !setup) {
-    outputEl.innerHTML = `<div class="alert alert-warn">
-      ⚠️ No business selected. Please open the <strong>Tallo CPA Setup</strong> extension first and select a business.
-    </div>`;
+  // Detect business from Manager context
+  let biz;
+  try {
+    biz = await getReportBusiness(document.getElementById('biz-selector-wrap'));
+    App.currentBusiness = biz;
+  } catch(e) {
+    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Could not connect to Manager: ${escHtml(e.message)}</div>`;
+    return;
+  }
+
+  outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading business setup…</span></div>`;
+  const setup = await loadSetup(biz);
+  outputEl.innerHTML = '';
+
+  if (!setup) {
+    outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Tallo CPA extension first.</div>`;
     return;
   }
 
