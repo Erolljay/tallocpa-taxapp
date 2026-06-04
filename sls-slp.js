@@ -15,16 +15,17 @@ function renderSLP(el) {
 }
 
 // ── SHARED RENDER ─────────────────────────────────────────────
-function renderSummaryList(el, type) {
-  const isSLS   = type === 'sls';
-  const title   = isSLS ? 'Summary List of Sales (SLS)' : 'Summary List of Purchases (SLP)';
-  const setup   = getSetup(App.currentBusiness);
+async function renderSummaryList(el, type) {
+  const isSLS = type === 'sls';
+  const title = isSLS ? 'Summary List of Sales (SLS)' : 'Summary List of Purchases (SLP)';
+
+  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div>`;
+  const setup = await loadSetup(App.currentBusiness);
 
   if (!setup) {
     el.innerHTML = `<div class="setup-required">
       <span>⚠️</span>
-      <div><strong>Setup Required</strong></div>
-      <button class="btn btn-primary btn-sm" onclick="navigate('setup')">Go to Setup</button>
+      <div><strong>Business info not configured yet.</strong><br>Fill in the Business tab first.</div>
     </div>`;
     return;
   }
@@ -108,7 +109,7 @@ async function generateSL(type) {
   }
 
   const { start, end } = getPeriodDates(periodType, period, year);
-  const setup = getSetup(App.currentBusiness);
+  const setup = await loadSetup(App.currentBusiness);
   const vm    = setup?.vatMapping || {};
 
   try {
@@ -137,8 +138,10 @@ async function generateSL(type) {
 
 // ── BUILD SLS ROWS ────────────────────────────────────────────
 async function buildSLSRows(start, end, vm, setup) {
-  const items    = await fetchAllBatch('/api4/sales-invoice-batch', App.currentBusiness);
-  const custData = getCustomers(App.currentBusiness);
+  const [items, custData] = await Promise.all([
+    fetchAllBatch('/api4/sales-invoice-batch', App.currentBusiness),
+    loadPartyBIR(App.currentBusiness, 'customer'),
+  ]);
   const salesMap = vm.sales || {};
   const rows     = [];
 
@@ -193,8 +196,10 @@ async function buildSLSRows(start, end, vm, setup) {
 
 // ── BUILD SLP ROWS ────────────────────────────────────────────
 async function buildSLPRows(start, end, vm, setup) {
-  const items    = await fetchAllBatch('/api4/purchase-invoice-batch', App.currentBusiness);
-  const suppData = getSuppliers(App.currentBusiness);
+  const [items, suppData] = await Promise.all([
+    fetchAllBatch('/api4/purchase-invoice-batch', App.currentBusiness),
+    loadPartyBIR(App.currentBusiness, 'supplier'),
+  ]);
   const purchMap = vm.purchases || {};
   const rows     = [];
 
