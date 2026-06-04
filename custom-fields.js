@@ -318,12 +318,12 @@
         if (el) newCF[f.id] = el.value;
       });
 
-      // Write to Manager -- primary store
+      // Write to Manager (camelCase envelope required by Manager API4)
       var managerOk = false;
       try {
         var updated = Object.assign({}, currentModel || {});
         updated.customFields = Object.assign({}, (currentModel || {}).customFields || {}, newCF);
-        await apiRequest('PUT', '/api4/business-details', { Business: business, Value: updated });
+        await apiRequest('PUT', '/api4/business-details', { business: business, value: updated });
         currentModel = updated;
         managerOk = true;
       } catch(err) {
@@ -460,7 +460,7 @@
       ];
       var updated = Object.assign({}, rec.value, { customFields: patchCF(rec.value.customFields, updates) });
       try {
-        await apiRequest('PUT', putPath, { Business: business, Key: key, Value: updated });
+        await apiRequest('PUT', putPath, { business: business, key: key, value: updated });
         rec.value = updated;
         flash(btn, true);
       } catch(err) {
@@ -496,7 +496,7 @@
             { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
           ];
           var updated = Object.assign({}, rec.value, { customFields: patchCF(rec.value.customFields, updates) });
-          await apiRequest('PUT', putPath, { Business: business, Key: key, Value: updated });
+          await apiRequest('PUT', putPath, { business: business, key: key, value: updated });
           rec.value = updated;
           ok++;
         } catch(e) { fail++; }
