@@ -37,7 +37,7 @@ async function fetchAllBatch(batchPath, businessName) {
   let skip = 0;
   const PAGE = 50;
   while (true) {
-    const qs = new URLSearchParams({ Business: businessName, Skip: String(skip), PageSize: String(PAGE) }).toString();
+    const qs = new URLSearchParams({ business: businessName, Skip: String(skip), PageSize: String(PAGE) }).toString();
     const res = await apiRequest('GET', `${batchPath}?${qs}`);
     const items = res?.items || [];
     all.push(...items);
@@ -113,7 +113,7 @@ const MAPPING_GUIDS = {
 
 // Load business-details from Manager (includes BIR custom fields + mappings)
 async function loadBizDetails(biz) {
-  const model = await apiRequest('GET', `/api4/business-details?Business=${encodeURIComponent(biz)}`);
+  const model = await apiRequest('GET', `/api4/business-details?business=${encodeURIComponent(biz)}`);
   return model || {};
 }
 
