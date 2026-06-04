@@ -122,7 +122,7 @@ async function renderReportsTab(biz) {
   }
   container.innerHTML = '<div class="status">Loading...</div>';
   try {
-    var res = await apiRequest('GET', '/api4/extension-batch?Business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
+    var res = await apiRequest('GET', '/api4/extension-batch?business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
     _installed = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
   } catch(e) { _installed = []; }
   buildReportTable(biz, container);
@@ -175,11 +175,11 @@ async function onReportAction(btn, biz) {
   try {
     if (action === 'install') {
       await apiRequest('POST', '/api4/extension', {
-        Business: biz,
-        Value: { Name: btn.dataset.name, Source: 0, Endpoint: btn.dataset.ep, Placement: 'reports' }
+        business: biz,
+        value: { Name: btn.dataset.name, Source: 0, Endpoint: btn.dataset.ep, Placement: 'reports' }
       });
     } else {
-      await apiRequest('DELETE', '/api4/extension?Business='+encodeURIComponent(biz)+'&Key='+encodeURIComponent(btn.dataset.key));
+      await apiRequest('DELETE', '/api4/extension?business='+encodeURIComponent(biz)+'&key='+encodeURIComponent(btn.dataset.key));
     }
     await renderReportsTab(biz);
   } catch(err) {
@@ -201,7 +201,7 @@ async function loadTaxCodesTab() {
   if (!biz) { out.innerHTML = '<div class="error">Please select a business.</div>'; return; }
   out.innerHTML = '<div class="status">Loading tax codes...</div>';
   try {
-    var res = await apiRequest('GET', '/api4/tax-code-batch?Business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
+    var res = await apiRequest('GET', '/api4/tax-code-batch?business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
     _taxCodes = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
   } catch(err) {
     out.innerHTML = '<div class="error">Failed to load: ' + escHtml(err.message) + '</div>';
