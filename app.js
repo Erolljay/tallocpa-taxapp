@@ -12,9 +12,7 @@ function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ?? STORAGE (fallback if shared.js not loaded first) ?????????
-window.getSetup  = window.getSetup  || function(b){ try{ var r=localStorage.getItem('tallocpa_setup_'+b); return r?JSON.parse(r):null; }catch(e){return null;} };
-window.saveSetup = window.saveSetup || function(b,d){ localStorage.setItem('tallocpa_setup_'+b,JSON.stringify(d)); };
+// Storage helpers are defined in shared.js (getSetup, saveSetup, getCustomers, etc.)
 
 // ?? BUSINESS SELECTOR ????????????????????????????????????????
 var businessSelect = document.getElementById('business');
@@ -30,6 +28,7 @@ var businessSelect = document.getElementById('business');
     }
     businessSelect.innerHTML = '<option value="">-- select a business --</option>' +
       names.map(function(n){ return '<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'; }).join('');
+    if (names.length) businessSelect.value = names[0];
     businessSelect.dispatchEvent(new Event('change'));
   } catch(e) {
     businessSelect.innerHTML = '<option value="">(could not load)</option>';
@@ -38,6 +37,7 @@ var businessSelect = document.getElementById('business');
 })();
 
 businessSelect && businessSelect.addEventListener('change', function() {
+  setupTabLoaded = false; // reset so tax codes reload for new business
   resetCF();
   var active = document.querySelector('.tab.active');
   if (active) activateTab(active.dataset.view);
@@ -56,6 +56,7 @@ function currentBiz() { return businessSelect ? businessSelect.value : ''; }
 var allViews = document.querySelectorAll('[id$="-view"]');
 var cfLoaded = {};
 var cfControllers = {};
+var setupTabLoaded = false;
 
 function activateTab(view) {
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === view); });
@@ -63,6 +64,7 @@ function activateTab(view) {
 
   var biz = currentBiz();
   if (view === 'reports')       renderReportsTab(biz);
+  if (view === 'setup' && !setupTabLoaded && biz) { setupTabLoaded = true; loadTaxCodesTab(); }
   if (view === 'business')      lazyMountCF('business',     biz);
   if (view === 'customers')     lazyMountCF('customers',    biz);
   if (view === 'suppliers')     lazyMountCF('suppliers',    biz);
@@ -267,7 +269,7 @@ function renderTaxCodesOutput(biz, out) {
         : '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Missing</span>';
       var action = match
         ? '<span style="font-size:11px;color:#9ca3af;">—</span>'
-        : '<button class="secondary" data-action="create-tc" data-name="'+escHtml(tpl.Name)+'" data-mgr-rate="'+tpl.managerRate+'" style="font-size:11px;padding:3px 10px;">Create</button>';
+        : '<button class="secondary" data-action="create-tc" data-name="'+escHtml(tpl.Name)+'" data-mgr-rate="'+tpl.managerRate+'" data-group="'+escHtml(tpl.group)+'" style="font-size:11px;padding:3px 10px;">Create</button>';
       html += '<tr style="border-bottom:.5px solid #f3f4f6;">';
       html += '<td style="padding:6px 8px;font-size:12px;font-weight:500;">'+escHtml(tpl.Name)+'</td>';
       html += '<td style="padding:6px 8px;font-size:12px;text-align:center;color:#374151;">'+birRateStr+'</td>';
@@ -295,14 +297,27 @@ function renderTaxCodesOutput(biz, out) {
   });
 }
 
+// Derive Manager TaxType from group + name
+function getTaxType(group, name) {
+  if (group === 'EWT' || group === 'GOVT' || group === 'FWT') return 4;
+  if (group === 'PT') return 0;  // Percentage tax treated as output-type in Manager
+  // VAT group
+  var n = (name || '').toLowerCase();
+  if (n.includes('capital')) return 2;
+  if (n.includes('input') || n.includes('purchase')) return 1;
+  return 0; // output VAT, zero-rated sales, exempt sales
+}
+
 async function onCreateTaxCode(btn, biz) {
   var name    = btn.dataset.name;
   var mgrRate = parseFloat(btn.dataset.mgrRate);
+  var group   = btn.dataset.group || '';
+  var taxType = getTaxType(group, name);
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
     await apiRequest('POST', '/api4/tax-code', {
-      Business: biz,
-      Value: { Name: name, Rate: mgrRate / 100 }
+      business: biz,
+      value: { Name: name, Component: [{ TaxType: taxType, Rate: mgrRate }] }
     });
     await loadTaxCodesTab();
   } catch(err) {
@@ -325,9 +340,11 @@ async function onCreateGroupTaxCodes(btn, biz) {
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
     for (var i = 0; i < missing.length; i++) {
+      var m = missing[i];
+      var taxType = getTaxType(m.group, m.Name);
       await apiRequest('POST', '/api4/tax-code', {
-        Business: biz,
-        Value: { Name: missing[i].Name, Rate: missing[i].managerRate / 100 }
+        business: biz,
+        value: { Name: m.Name, Component: [{ TaxType: taxType, Rate: m.managerRate }] }
       });
     }
     await loadTaxCodesTab();
