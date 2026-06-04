@@ -67,6 +67,9 @@
       </div>
     </div>
 
+    <!-- Business selector injected here by getReportBusiness() if multiple businesses -->
+    <div id="biz-selector-wrap"></div>
+
     <div class="filter-bar">
       <label>Quarter</label>
       <select id="f-quarter"></select>
@@ -89,7 +92,7 @@
 <script src="shared.js"></script>
 <script>
 // ── INIT ─────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const now  = new Date();
   const curQ = Math.ceil((now.getMonth() + 1) / 3);
   const curY = now.getFullYear();
@@ -111,31 +114,33 @@ document.addEventListener('DOMContentLoaded', () => {
     ySel.appendChild(o);
   });
 
+  // Detect the active business from Manager
+  try {
+    App.currentBusiness = await getReportBusiness(document.getElementById('biz-selector-wrap'));
+  } catch(e) {
+    document.getElementById('output').innerHTML =
+      `<div class="alert alert-warn">⚠️ Could not connect to Manager: ${e.message}</div>`;
+    return;
+  }
+
   document.getElementById('btn-gen').addEventListener('click', generate);
 });
 
-// ── QUARTER STORAGE ───────────────────────────────────────────
-function vatResultKey(biz, year, quarter) {
-  return `tallocpa_vat_q_${biz}_${year}_Q${quarter}`;
-}
-function saveVATResult(biz, year, quarter, data) {
-  localStorage.setItem(vatResultKey(biz, year, quarter), JSON.stringify(data));
-}
-function getPrevQuarterResult(biz, quarter, year) {
-  const pq = quarter === 1 ? 4 : quarter - 1;
-  const py = quarter === 1 ? year - 1 : year;
-  const raw = localStorage.getItem(vatResultKey(biz, py, pq));
-  return raw ? JSON.parse(raw) : null;
-}
-
-// ── GENERATE ─────────────────────────────────────────────────
+// ── GENERATE ──────────────────────────────────────────────────
 async function generate() {
-  const biz   = localStorage.getItem('tallocpa_last_business') || '';
-  const setup = biz ? getSetup(biz) : null;
+  const biz    = App.currentBusiness || '';
   const output = document.getElementById('output');
 
-  if (!biz || !setup) {
-    output.innerHTML = `<div class="alert alert-warn">⚠️ No business selected. Open <strong>Tallo CPA Setup</strong> first.</div>`;
+  if (!biz) {
+    output.innerHTML = `<div class="alert alert-warn">⚠️ No business selected.</div>`;
+    return;
+  }
+
+  output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading business setup…</span></div>`;
+  const setup = await loadSetup(biz);
+
+  if (!setup || !setup.tin) {
+    output.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured yet. Fill in the <strong>Business</strong> tab in the Tallo CPA extension first.</div>`;
     return;
   }
 
@@ -190,7 +195,7 @@ async function generate() {
     // ── SCHEDULE 3: CREDITABLE VAT WITHHELD ───────────────────
     const cwtAccounts  = vm.cwtAccounts || [];
     const sched3Rows   = [];
-    const custMap      = getCustomers(biz);
+    const custMap      = await loadPartyBIR(biz, 'customer');
 
     for (const { item } of receipts) {
       for (const line of (item?.Lines || [])) {
@@ -215,8 +220,8 @@ async function generate() {
     const totalCWT = sched3Rows.reduce((a, r) => a + r.cwt, 0);
 
     // ── CARRY-OVER FROM PREV QUARTER ──────────────────────────
-    const prevResult = getPrevQuarterResult(biz, quarter, year);
-    const autoCarryOver = prevResult && prevResult.netVAT < 0 ? Math.abs(prevResult.netVAT) : 0;
+    // (carry-over stored in Manager business-details in a future phase)
+    const autoCarryOver = 0;
 
     // ── COMPUTED TOTALS ───────────────────────────────────────
     const totalSales   = vatableSales + zeroRated + exemptSales;
@@ -236,11 +241,7 @@ async function generate() {
     // Item 60 = 51 - 59
     // Item 61 = 37 - 60
 
-    // Store result
-    saveVATResult(biz, year, quarter, {
-      netVAT: outputTax - totalCurInTax - autoCarryOver,
-      outputTax, totalCurInTax, vatableSales,
-    });
+    // (VAT result carry-over will be stored in Manager in a future phase)
 
     renderForm(output, {
       biz, setup, quarter, year, start, end,
@@ -633,12 +634,6 @@ function recompute() {
     row26.className = 'bir-row ' + (i26 > 0 ? 'payable' : i26 < 0 ? 'refund' : 'total');
   }
 
-  // Auto-save result for next quarter's carry-over
-  const biz = localStorage.getItem('tallocpa_last_business') || '';
-  if (biz && window._vatData) {
-    const { quarter, year } = window._vatData;
-    saveVATResult(biz, year, quarter, { netVAT: i61, outputTax: d.i34B, totalCurInTax: d.totalCurInTax });
-  }
 }
 
 // ── HELPER RENDERERS ──────────────────────────────────────────
