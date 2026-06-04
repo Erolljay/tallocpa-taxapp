@@ -5,22 +5,35 @@
 // Business section mirrors AU extension:
 //   - Data stored IN Manager's business record as custom fields
 //   - Form renders immediately (no spinner), loads from Manager in background
-//   - On save: writes to Manager first, caches to localStorage for reports
+//   - On save: writes directly to Manager business record (no localStorage)
 
 (function () {
 
   var BUSINESS_FIELDS = [
-    { id: 'b1r00001-0000-4000-a000-000000000001', label: 'TIN',                       type: 'text',   placeholder: '000-000-000-000' },
-    { id: 'b1r00001-0000-4000-a000-000000000002', label: 'RDO Code',                  type: 'text',   placeholder: 'e.g. 083' },
-    { id: 'b1r00001-0000-4000-a000-000000000003', label: 'Zip Code',                  type: 'text',   placeholder: 'e.g. 5000' },
-    { id: 'b1r00001-0000-4000-a000-000000000004', label: 'Taxpayer Classification',   type: 'select', options: ['', 'Non-Individual / Corporation', 'Individual'] },
-    { id: 'b1r00001-0000-4000-a000-000000000005', label: 'Industry Classification',   type: 'text',   placeholder: 'e.g. Retail Trade' },
-    { id: 'b1r00001-0000-4000-a000-000000000013', label: 'Branch Code',               type: 'text',   placeholder: '000 (Head Office = 000)' },
-    { id: 'b1r00001-0000-4000-a000-000000000014', label: 'Authorized Representative', type: 'text',   placeholder: 'Full name of signatory' },
-    { id: 'b1r00001-0000-4000-a000-000000000009', label: 'Company / Registered Name', type: 'text',   placeholder: 'ABC Corporation' },
-    { id: 'b1r00001-0000-4000-a000-000000000010', label: 'Last Name',                 type: 'text',   placeholder: 'Dela Cruz' },
-    { id: 'b1r00001-0000-4000-a000-000000000011', label: 'First Name',                type: 'text',   placeholder: 'Juan' },
-    { id: 'b1r00001-0000-4000-a000-000000000012', label: 'Middle Name',               type: 'text',   placeholder: 'Santos' },
+    // [0] Identity
+    { id: 'b1r00001-0000-4000-a000-000000000001', label: 'TIN',                      type: 'text',   placeholder: '000-000-000-000' },
+    { id: 'b1r00001-0000-4000-a000-000000000002', label: 'RDO Code',                 type: 'text',   placeholder: 'e.g. 083' },
+    { id: 'b1r00001-0000-4000-a000-000000000013', label: 'Branch Code',              type: 'text',   placeholder: '000 (Head Office = 000)' },
+    { id: 'b1r00001-0000-4000-a000-000000000004', label: 'Taxpayer Classification',  type: 'select', options: ['', 'Non-Individual / Corporation', 'Individual'] },
+    { id: 'b1r00001-0000-4000-a000-000000000005', label: 'Line of Business',         type: 'text',   placeholder: 'e.g. Retail Trade' },
+    { id: 'b1r00001-0000-4000-a000-000000000015', label: 'Telephone Number',         type: 'text',   placeholder: 'e.g. 033-XXX-XXXX' },
+    { id: 'b1r00001-0000-4000-a000-000000000016', label: 'Email Address',            type: 'text',   placeholder: 'e.g. info@company.com' },
+    // [7] Registered Name (non-individual)
+    { id: 'b1r00001-0000-4000-a000-000000000009', label: 'Company / Registered Name', type: 'text',  placeholder: 'ABC Corporation' },
+    // [8-10] Registered Name (individual)
+    { id: 'b1r00001-0000-4000-a000-000000000010', label: 'Last Name',                type: 'text',   placeholder: 'Dela Cruz' },
+    { id: 'b1r00001-0000-4000-a000-000000000011', label: 'First Name',               type: 'text',   placeholder: 'Juan' },
+    { id: 'b1r00001-0000-4000-a000-000000000012', label: 'Middle Name',              type: 'text',   placeholder: 'Santos' },
+    // [11-16] Address
+    { id: 'b1r00001-0000-4000-a000-000000000017', label: 'Substreet',                type: 'text',   placeholder: 'Unit / Floor / Room' },
+    { id: 'b1r00001-0000-4000-a000-000000000018', label: 'Street',                   type: 'text',   placeholder: 'e.g. Iznart St.' },
+    { id: 'b1r00001-0000-4000-a000-000000000019', label: 'Barangay',                 type: 'text',   placeholder: 'e.g. Brgy. Rizal' },
+    { id: 'b1r00001-0000-4000-a000-000000000020', label: 'District / Municipality',  type: 'text',   placeholder: 'e.g. Iloilo City' },
+    { id: 'b1r00001-0000-4000-a000-000000000021', label: 'City / Province',          type: 'text',   placeholder: 'e.g. Iloilo' },
+    { id: 'b1r00001-0000-4000-a000-000000000003', label: 'Zip Code',                 type: 'text',   placeholder: 'e.g. 5000' },
+    // [17-18] Authorized Rep
+    { id: 'b1r00001-0000-4000-a000-000000000014', label: 'Authorized Rep Name',      type: 'text',   placeholder: 'Full name of signatory' },
+    { id: 'b1r00001-0000-4000-a000-000000000022', label: 'Authorized Rep Title',     type: 'text',   placeholder: 'e.g. President / Treasurer' },
   ];
 
   var PARTY_FIELDS = [
@@ -173,8 +186,11 @@
       renderBizForm({});
 
       // Load from Manager in background -- populate when ready
+      var statusEl = container.querySelector('#cf-biz-status');
+      if (statusEl) { statusEl.textContent = 'Loading...'; statusEl.style.color = '#6b7280'; }
       apiRequest('GET', '/api4/business-details?Business=' + encodeURIComponent(business))
         .then(function(model) {
+          if (statusEl) statusEl.textContent = '';
           if (!model) return;
           currentModel = model;
           var cf = model.customFields || {};
@@ -186,47 +202,74 @@
           });
           // Update classification toggle
           var cls = cf['b1r00001-0000-4000-a000-000000000004'] || '';
-          if (cls) {
-            var ind = cls === 'Individual';
-            var co = container.querySelector('#cf-grp-company');
-            var pi = container.querySelector('#cf-grp-ind');
-            if (co) co.style.display = ind ? 'none' : '';
-            if (pi) pi.style.display = ind ? '' : 'none';
-          }
+          var ind = cls === 'Individual';
+          var co = container.querySelector('#cf-grp-company');
+          var pi = container.querySelector('#cf-grp-ind');
+          if (co) co.style.display = ind ? 'none' : '';
+          if (pi) pi.style.display = ind ? '' : 'none';
         })
-        .catch(function() {
-          // Manager endpoint not available -- form stays empty for now
-          // User can fill in and save -- save will attempt Manager write
+        .catch(function(err) {
+          if (statusEl) {
+            statusEl.textContent = 'Could not load from Manager — fill in and save manually.';
+            statusEl.style.color = '#f59e0b';
+          }
+          console.warn('business-details GET failed:', err && err.message);
         });
     }
 
     function renderBizForm(cf) {
       var isInd = (cf['b1r00001-0000-4000-a000-000000000004'] || '') === 'Individual';
 
+      function BF(id) { return BUSINESS_FIELDS.find(function(f){ return f.id === id; }); }
+      function val(id) { return cf[id] || ''; }
+
+      var secStyle = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid #f1f5f9;';
+
+      // Section 1: 2-column — Identity | Registered Name
       var left =
-        '<p style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:10px;">Taxpayer identity</p>' +
-        renderField(BUSINESS_FIELDS[0], cf['b1r00001-0000-4000-a000-000000000001'] || '', 'biz') +
-        renderField(BUSINESS_FIELDS[1], cf['b1r00001-0000-4000-a000-000000000002'] || '', 'biz') +
-        renderField(BUSINESS_FIELDS[2], cf['b1r00001-0000-4000-a000-000000000003'] || '', 'biz') +
-        renderField(BUSINESS_FIELDS[3], cf['b1r00001-0000-4000-a000-000000000004'] || '', 'biz') +
-        renderField(BUSINESS_FIELDS[4], cf['b1r00001-0000-4000-a000-000000000005'] || '', 'biz') +
-        renderField(BUSINESS_FIELDS[5], cf['b1r00001-0000-4000-a000-000000000013'] || '', 'biz') +
-        renderField(BUSINESS_FIELDS[6], cf['b1r00001-0000-4000-a000-000000000014'] || '', 'biz');
+        '<p style="' + secStyle + '">Taxpayer Identity</p>' +
+        renderField(BF('b1r00001-0000-4000-a000-000000000001'), val('b1r00001-0000-4000-a000-000000000001'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000002'), val('b1r00001-0000-4000-a000-000000000002'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000013'), val('b1r00001-0000-4000-a000-000000000013'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000004'), val('b1r00001-0000-4000-a000-000000000004'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000005'), val('b1r00001-0000-4000-a000-000000000005'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000015'), val('b1r00001-0000-4000-a000-000000000015'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000016'), val('b1r00001-0000-4000-a000-000000000016'), 'biz');
 
       var right =
-        '<p style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:10px;">Registered name</p>' +
+        '<p style="' + secStyle + '">Registered Name</p>' +
         '<div id="cf-grp-company" style="' + (isInd ? 'display:none' : '') + '">' +
-          renderField(BUSINESS_FIELDS[7], cf['b1r00001-0000-4000-a000-000000000009'] || '', 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000009'), val('b1r00001-0000-4000-a000-000000000009'), 'biz') +
         '</div>' +
         '<div id="cf-grp-ind" style="' + (!isInd ? 'display:none' : '') + '">' +
-          renderField(BUSINESS_FIELDS[8],  cf['b1r00001-0000-4000-a000-000000000010'] || '', 'biz') +
-          renderField(BUSINESS_FIELDS[9],  cf['b1r00001-0000-4000-a000-000000000011'] || '', 'biz') +
-          renderField(BUSINESS_FIELDS[10], cf['b1r00001-0000-4000-a000-000000000012'] || '', 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000010'), val('b1r00001-0000-4000-a000-000000000010'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000011'), val('b1r00001-0000-4000-a000-000000000011'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000012'), val('b1r00001-0000-4000-a000-000000000012'), 'biz') +
+        '</div>';
+
+      // Section 2: Address (3-column grid)
+      var addr =
+        '<p style="' + secStyle + 'margin-top:16px;">Address</p>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;">' +
+          renderField(BF('b1r00001-0000-4000-a000-000000000017'), val('b1r00001-0000-4000-a000-000000000017'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000018'), val('b1r00001-0000-4000-a000-000000000018'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000019'), val('b1r00001-0000-4000-a000-000000000019'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000020'), val('b1r00001-0000-4000-a000-000000000020'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000021'), val('b1r00001-0000-4000-a000-000000000021'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000003'), val('b1r00001-0000-4000-a000-000000000003'), 'biz') +
+        '</div>';
+
+      // Section 3: Authorized Rep
+      var rep =
+        '<p style="' + secStyle + 'margin-top:16px;">Authorized Representative</p>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">' +
+          renderField(BF('b1r00001-0000-4000-a000-000000000014'), val('b1r00001-0000-4000-a000-000000000014'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000022'), val('b1r00001-0000-4000-a000-000000000022'), 'biz') +
         '</div>';
 
       container.innerHTML =
         '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">' +
-        'BIR fields stored as custom fields in Manager -- per business, per record. ' +
+        'BIR fields stored as custom fields in Manager — per business, per record. ' +
         'Used by all reports, DAT files, and 2307 certificate generation.' +
         '</p>' +
         '<form id="cf-biz-form">' +
@@ -234,8 +277,11 @@
         '<div>' + left + '</div>' +
         '<div>' + right + '</div>' +
         '</div>' +
+        addr +
+        rep +
         '<div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:12px;">' +
         '<span id="cf-biz-status" style="font-size:11px;color:#6b7280;"></span>' +
+        '<button type="button" id="cf-biz-reload" class="btn btn-secondary" style="font-size:12px;">Reload</button>' +
         '<button type="submit" class="btn btn-primary" id="cf-biz-save">Save Business Info</button>' +
         '</div>' +
         '</form>';
@@ -251,6 +297,7 @@
         });
       }
 
+      container.querySelector('#cf-biz-reload').addEventListener('click', function() { refresh(); });
       container.querySelector('#cf-biz-form').addEventListener('submit', onSave);
     }
 
@@ -271,28 +318,6 @@
         if (el) newCF[f.id] = el.value;
       });
 
-      // Build legacy cache for report pages
-      var cls   = newCF['b1r00001-0000-4000-a000-000000000004'] || '';
-      var isInd = cls === 'Individual';
-      var legacyCache = {
-        tin:                    newCF['b1r00001-0000-4000-a000-000000000001'] || '',
-        rdoCode:                newCF['b1r00001-0000-4000-a000-000000000002'] || '',
-        zipCode:                newCF['b1r00001-0000-4000-a000-000000000003'] || '',
-        classification:         cls || 'Non-Individual',
-        industryClassification: newCF['b1r00001-0000-4000-a000-000000000005'] || '',
-        branchCode:             newCF['b1r00001-0000-4000-a000-000000000013'] || '',
-        authorizedRep:          newCF['b1r00001-0000-4000-a000-000000000014'] || '',
-        companyName:  !isInd ? (newCF['b1r00001-0000-4000-a000-000000000009'] || '') : '',
-        lastName:      isInd ? (newCF['b1r00001-0000-4000-a000-000000000010'] || '') : '',
-        firstName:     isInd ? (newCF['b1r00001-0000-4000-a000-000000000011'] || '') : '',
-        middleName:    isInd ? (newCF['b1r00001-0000-4000-a000-000000000012'] || '') : '',
-        taxpayerName:  isInd
-          ? [newCF['b1r00001-0000-4000-a000-000000000010'],
-             newCF['b1r00001-0000-4000-a000-000000000011'],
-             newCF['b1r00001-0000-4000-a000-000000000012']].filter(Boolean).join(', ')
-          : (newCF['b1r00001-0000-4000-a000-000000000009'] || ''),
-      };
-
       // Write to Manager -- primary store
       var managerOk = false;
       try {
@@ -303,12 +328,6 @@
         managerOk = true;
       } catch(err) {
         console.warn('business-details PUT failed:', err.message);
-      }
-
-      // Cache to localStorage for backward compat with report pages
-      if (typeof saveSetup === 'function' && typeof getSetup === 'function') {
-        var existing = getSetup(business) || {};
-        saveSetup(business, Object.assign({}, existing, legacyCache));
       }
 
       btn.disabled = false;
@@ -333,9 +352,10 @@
     async function refresh() {
       var business = biz();
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
-      container.innerHTML = spinner('Loading ' + partyType + 's from Manager...');
+      container.innerHTML = spinner('Loading ' + partyType + 's from Manager…');
       try {
-        var items = await fetchAllBatch(batchPath, business);
+        var res = await apiRequest('GET', batchPath + '?Business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
+        var items = (res && res.items) ? res.items : [];
         cache = items.map(function(it) {
           return {
             key: it.key,
@@ -344,7 +364,13 @@
           };
         }).sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
       } catch(err) {
-        container.innerHTML = '<div class="alert alert-error">Failed: ' + esc(err.message) + '</div>';
+        container.innerHTML =
+          '<div style="padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;">' +
+          '⚠ Could not load ' + partyType + 's: ' + esc(err.message) +
+          ' <button onclick="CF.mount' + (partyType === 'customer' ? 'Party' : 'Party') + '" style="margin-left:8px;font-size:11px;padding:2px 10px;cursor:pointer;" id="cf-' + partyType + '-retry">Retry</button>' +
+          '</div>';
+        var retryBtn = container.querySelector('#cf-' + partyType + '-retry');
+        if (retryBtn) retryBtn.addEventListener('click', function() { refresh(); });
         return;
       }
       renderPartyTable();
@@ -374,30 +400,38 @@
             '<option value="Non-Individual"' + (!isInd ? ' selected' : '') + '>Non-Individual</option>' +
             '<option value="Individual"' + (isInd ? ' selected' : '') + '>Individual</option>' +
           '</select></td>' +
-          '<td><input class="form-input cf-tin"    style="width:115px;font-size:10px;" placeholder="000-000-000-000" value="' + esc(tin) + '"></td>' +
-          '<td><input class="form-input cf-branch" style="width:60px;font-size:10px;" placeholder="000" value="' + esc(branch) + '"></td>' +
-          '<td><input class="form-input cf-corp" style="width:145px;font-size:10px;" placeholder="Corp/Company" value="' + esc(corp) + '"' + (isInd ? ' disabled style="' + dis + 'width:145px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-ln" style="width:95px;font-size:10px;" placeholder="Last" value="' + esc(ln) + '"' + (!isInd ? ' disabled style="' + dis + 'width:95px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-fn" style="width:85px;font-size:10px;" placeholder="First" value="' + esc(fn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:85px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-mn" style="width:55px;font-size:10px;" placeholder="MI" value="' + esc(mn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:55px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-a1" style="width:145px;font-size:10px;" placeholder="Unit, Bldg, Street" value="' + esc(a1) + '"></td>' +
-          '<td><input class="form-input cf-a2" style="width:135px;font-size:10px;" placeholder="City, Province" value="' + esc(a2) + '"></td>' +
+          '<td><input class="form-input cf-tin"    style="width:120px;font-size:11px;" placeholder="000-000-000-000" value="' + esc(tin) + '"></td>' +
+          '<td><input class="form-input cf-branch" style="width:60px;font-size:11px;" placeholder="000" value="' + esc(branch) + '"></td>' +
+          '<td><input class="form-input cf-corp" style="width:150px;font-size:11px;" placeholder="Corp / Registered Name" value="' + esc(corp) + '"' + (isInd ? ' disabled style="' + dis + 'width:150px;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-ln" style="width:100px;font-size:11px;" placeholder="Dela Cruz" value="' + esc(ln) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100px;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-fn" style="width:90px;font-size:11px;" placeholder="Juan" value="' + esc(fn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:90px;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-mn" style="width:60px;font-size:11px;" placeholder="Santos" value="' + esc(mn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:60px;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-a1" style="width:170px;font-size:11px;" placeholder="Unit, Bldg, Street, Brgy" value="' + esc(a1) + '"></td>' +
+          '<td><input class="form-input cf-a2" style="width:150px;font-size:11px;" placeholder="City / Municipality, Province" value="' + esc(a2) + '"></td>' +
           '<td><button class="btn btn-primary btn-sm" data-action="cf-save-row" onclick="cfSavePartyRow(this,\'' + partyType + '\')" style="font-size:10px;">Save</button></td>' +
           '</tr>';
       }).join('');
 
       container.innerHTML =
         '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">' +
-        '<input type="text" class="form-input" id="cf-' + partyType + '-search" placeholder="Search..." style="width:200px;" oninput="cfPartySearch(this,\'cf-' + partyType + '-table\')">'+
-        '<span style="font-size:11px;color:#6b7280;">' + cache.length + ' records -- Save per row to write to Manager</span>' +
-        '<button class="btn" style="margin-left:auto;font-size:11px;padding:5px 12px;border:.5px solid #d1d5db;border-radius:6px;cursor:pointer;" onclick="cfSaveAllParty(\'' + partyType + '\')">Save All</button>' +
+        '<input type="text" class="form-input" id="cf-' + partyType + '-search" placeholder="Search by name…" style="width:220px;" oninput="cfPartySearch(this,\'cf-' + partyType + '-table\')">'+
+        '<span style="font-size:11px;color:#6b7280;">' + cache.length + ' record' + (cache.length !== 1 ? 's' : '') + ' — Save per row or use Save All</span>' +
+        '<button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:5px 14px;" onclick="cfSaveAllParty(\'' + partyType + '\')">Save All</button>' +
         '</div>' +
-        '<div style="overflow-x:auto;">' +
-        '<table class="data-table" id="cf-' + partyType + '-table">' +
-        '<thead><tr>' +
-        '<th>Name in Manager</th><th>Taxpayer Type</th><th>TIN</th><th>Branch</th>' +
-        '<th>Company / Corp Name</th><th>Last Name</th><th>First Name</th><th>MI</th>' +
-        '<th>Address 1</th><th>Address 2</th><th></th>' +
+        '<div style="overflow-x:auto;width:100%;">' +
+        '<table class="data-table" id="cf-' + partyType + '-table" style="min-width:1300px;width:100%;border-collapse:collapse;">' +
+        '<thead><tr style="font-size:11px;white-space:nowrap;">' +
+        '<th style="min-width:160px;">Name in Manager</th>' +
+        '<th style="min-width:130px;">Taxpayer Type</th>' +
+        '<th style="min-width:130px;">TIN</th>' +
+        '<th style="min-width:70px;">Branch</th>' +
+        '<th style="min-width:160px;">Company / Corp Name</th>' +
+        '<th style="min-width:110px;">Last Name</th>' +
+        '<th style="min-width:100px;">First Name</th>' +
+        '<th style="min-width:70px;">Middle Name</th>' +
+        '<th style="min-width:180px;">Address Line 1</th>' +
+        '<th style="min-width:160px;">Address Line 2</th>' +
+        '<th style="min-width:60px;"></th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table></div>';
@@ -486,14 +520,20 @@
     async function refresh() {
       var business = biz();
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
-      container.innerHTML = spinner('Loading employees from Manager...');
+      container.innerHTML = spinner('Loading employees from Manager…');
       try {
-        var items = await fetchAllBatch('/api4/employee-batch', business);
+        var res = await apiRequest('GET', '/api4/employee-batch?Business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
+        var items = (res && res.items) ? res.items : [];
         cache = items.map(function(it) {
           return { key: it.key, value: it.item || {}, displayName: (it.item || {}).name || (it.item || {}).Name || it.key };
         }).sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
       } catch(err) {
-        container.innerHTML = '<div class="alert alert-error">Failed: ' + esc(err.message) + '</div>';
+        container.innerHTML =
+          '<div style="padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;">' +
+          '⚠ Could not load employees: ' + esc(err.message) +
+          ' <button id="cf-emp-retry" style="margin-left:8px;font-size:11px;padding:2px 10px;cursor:pointer;">Retry</button></div>';
+        var retryBtn = container.querySelector('#cf-emp-retry');
+        if (retryBtn) retryBtn.addEventListener('click', function() { refresh(); });
         return;
       }
       renderEmpPicker();
