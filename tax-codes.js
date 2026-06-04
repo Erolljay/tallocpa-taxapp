@@ -1,57 +1,61 @@
-// Philippines BIR — Standard tax code templates + mapping definitions.
-// TAX_CODE_TEMPLATES: codes to create in Manager (one-click from Tax codes tab).
-// EWT_ATC_LIST: curated ATC codes for EWT/CWT mapping section.
-// FWT_ATC_LIST: FWT codes for FWT mapping section.
-// PT_ATC_LIST: Percentage Tax codes for PT mapping section.
-
-// ── TAX CODE TEMPLATES ───────────────────────────────────────
-// app.js reads this to show status per business and offer one-click Create.
+// Philippines BIR — Standard tax code templates.
+// TAX_CODE_TEMPLATES: all BIR tax codes used by this extension.
+//   Name        — exact name used in Manager (must match exactly)
+//   Label       — display label / ATC description
+//   birRate     — actual BIR rate shown in UI and used to back-calculate tax base
+//   managerRate — rate to set when creating in Manager:
+//                   100 for EWT/FWT/WB (workaround: line amount = withholding amount)
+//                   actual rate for VAT/PT (Manager computes tax natively)
+//   group       — one of: 'VAT' | 'PT' | 'EWT' | 'GOVT' | 'FWT'
 
 const TAX_CODE_TEMPLATES = [
 
-  // VALUE ADDED TAX
-  { Name: 'Output VAT 12%',                  Label: 'Standard VATable sales',                         Rate: 12.0, group: 'VAT' },
-  { Name: 'Input VAT 12%',                   Label: 'Standard VATable purchases',                     Rate: 12.0, group: 'VAT' },
-  { Name: 'Input VAT 12% (Capital Goods)',   Label: 'Capital expenditure purchases',                  Rate: 12.0, group: 'VAT' },
-  { Name: 'Zero-Rated Sales',                Label: 'Export / PEZA / zero-rated',                     Rate: 0,    group: 'VAT' },
-  { Name: 'VAT Exempt Sales',                Label: 'Sales exempt from VAT',                          Rate: 0,    group: 'VAT' },
-  { Name: 'Zero-Rated Purchases',            Label: 'Zero-rated purchase inputs',                     Rate: 0,    group: 'VAT' },
-  { Name: 'VAT Exempt Purchases',            Label: 'Exempt purchase inputs',                         Rate: 0,    group: 'VAT' },
-  { Name: 'Govt Withholding VAT - Goods',    Label: 'WV012 – VAT withholding on purchases of goods',  Rate: 5.0,  group: 'VAT' },
-  { Name: 'Govt Withholding VAT - Services', Label: 'WV022 – VAT withholding on purchases of services', Rate: 5.0, group: 'VAT' },
+  // ── GROUP 1A: VALUE ADDED TAX ─────────────────────────────
+  { Name: 'Output VAT 12%',                  Label: 'Standard VATable sales',                          birRate: 12.0, managerRate: 12.0, group: 'VAT' },
+  { Name: 'Input VAT 12%',                   Label: 'Standard VATable purchases',                      birRate: 12.0, managerRate: 12.0, group: 'VAT' },
+  { Name: 'Input VAT 12% (Capital Goods)',   Label: 'Capital expenditure purchases',                   birRate: 12.0, managerRate: 12.0, group: 'VAT' },
+  { Name: 'Zero-Rated Sales',                Label: 'Export / PEZA / zero-rated',                      birRate: 0,    managerRate: 0,    group: 'VAT' },
+  { Name: 'VAT Exempt Sales',                Label: 'Sales exempt from VAT',                           birRate: 0,    managerRate: 0,    group: 'VAT' },
+  { Name: 'Zero-Rated Purchases',            Label: 'Zero-rated purchase inputs',                      birRate: 0,    managerRate: 0,    group: 'VAT' },
+  { Name: 'VAT Exempt Purchases',            Label: 'Exempt purchase inputs',                          birRate: 0,    managerRate: 0,    group: 'VAT' },
 
-  // PERCENTAGE TAX
-  { Name: 'Percentage Tax 3%',               Label: 'For non-VAT registered taxpayers',               Rate: 3.0,  group: 'Percentage Tax' },
-  { Name: 'Govt Withholding PT 3%',          Label: 'WB080 – Sec. 109BB government withholding',      Rate: 3.0,  group: 'Percentage Tax' },
+  // ── GROUP 1B: PERCENTAGE TAX ──────────────────────────────
+  { Name: 'PT010 – Percentage Tax 3%',       Label: 'PT010 – Non-VAT registered taxpayers',            birRate: 3.0,  managerRate: 3.0,  group: 'PT' },
+  { Name: 'PT040 – Common Carrier 3%',       Label: 'PT040 – Domestic carriers & keepers of garages',  birRate: 3.0,  managerRate: 3.0,  group: 'PT' },
+  { Name: 'PT101 – Nonbanks Financial 5%',   Label: 'PT101 – Nonbanks financial intermediaries',       birRate: 5.0,  managerRate: 5.0,  group: 'PT' },
 
-  // EXPANDED WITHHOLDING TAX — INDIVIDUAL
-  { Name: 'EWT 5% – Prof. fees ≤3M',         Label: 'WI010 – Individual',  Rate: 5.0,  group: 'EWT' },
-  { Name: 'EWT 10% – Prof. fees >3M/VAT',    Label: 'WI011 – Individual',  Rate: 10.0, group: 'EWT' },
-  { Name: 'EWT 5% – Bookkeeping ≤3M',        Label: 'WI060 – Individual',  Rate: 5.0,  group: 'EWT' },
-  { Name: 'EWT 10% – Bookkeeping >3M/VAT',   Label: 'WI061 – Individual',  Rate: 10.0, group: 'EWT' },
-  { Name: 'EWT 5% – Rentals',                Label: 'WI100 – Individual',  Rate: 5.0,  group: 'EWT' },
-  { Name: 'EWT 2% – Contractors',            Label: 'WI120 – Individual',  Rate: 2.0,  group: 'EWT' },
-  { Name: 'EWT 10% – Medical >3M/VAT',       Label: 'WI150 – Individual',  Rate: 10.0, group: 'EWT' },
-  { Name: 'EWT 5% – Medical ≤3M',            Label: 'WI151 – Individual',  Rate: 5.0,  group: 'EWT' },
-  { Name: 'EWT 2% – Govt/GOCC services',     Label: 'WI157 – Individual',  Rate: 2.0,  group: 'EWT' },
-  { Name: 'EWT 1% – Top WA goods',           Label: 'WI158 – Individual',  Rate: 1.0,  group: 'EWT' },
-  { Name: 'EWT 2% – Top WA services',        Label: 'WI160 – Individual',  Rate: 2.0,  group: 'EWT' },
-  { Name: 'EWT 5% – Minerals/quarry',        Label: 'WI630 – Individual',  Rate: 5.0,  group: 'EWT' },
-  { Name: 'EWT 1% – Govt/GOCC goods',        Label: 'WI640 – Individual',  Rate: 1.0,  group: 'EWT' },
+  // ── GROUP 2: EWT / CWT ON INCOME PAYMENTS ────────────────
+  // Manager rate = 100 (line amount = exact withholding amount; birRate used to back-calc tax base)
+  { Name: 'EWT 5% – Prof. fees ≤3M',         Label: 'WI010 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 10% – Prof. fees >3M/VAT',    Label: 'WI011 – Individual',     birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 5% – Bookkeeping ≤3M',        Label: 'WI060 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 10% – Bookkeeping >3M/VAT',   Label: 'WI061 – Individual',     birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 5% – Rentals',                Label: 'WI100 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 2% – Contractors',            Label: 'WI120 – Individual',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 10% – Medical >3M/VAT',       Label: 'WI150 – Individual',     birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 5% – Medical ≤3M',            Label: 'WI151 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 2% – Govt/GOCC services',     Label: 'WI157 – Individual',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 1% – Top WA goods',           Label: 'WI158 – Individual',     birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 2% – Top WA services',        Label: 'WI160 – Individual',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 5% – Minerals/quarry',        Label: 'WI630 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 1% – Govt/GOCC goods',        Label: 'WI640 – Individual',     birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 10% – Prof. fees ≤720K',      Label: 'WC010 – Non-Individual', birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 15% – Prof. fees >720K',      Label: 'WC011 – Non-Individual', birRate: 15.0, managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 5% – Rentals (corp)',          Label: 'WC100 – Non-Individual', birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 2% – Contractors (corp)',      Label: 'WC120 – Non-Individual', birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 2% – Govt/GOCC services (corp)', Label: 'WC157 – Non-Individual', birRate: 2.0, managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 1% – Top WA goods (corp)',     Label: 'WC158 – Non-Individual', birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 2% – Top WA services (corp)', Label: 'WC160 – Non-Individual', birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'EWT 1% – Govt/GOCC goods (corp)', Label: 'WC640 – Non-Individual', birRate: 1.0,  managerRate: 100, group: 'EWT' },
 
-  // EXPANDED WITHHOLDING TAX — NON-INDIVIDUAL
-  { Name: 'EWT 10% – Prof. fees ≤720K',      Label: 'WC010 – Non-Individual', Rate: 10.0, group: 'EWT' },
-  { Name: 'EWT 15% – Prof. fees >720K',      Label: 'WC011 – Non-Individual', Rate: 15.0, group: 'EWT' },
-  { Name: 'EWT 5% – Rentals (corp)',          Label: 'WC100 – Non-Individual', Rate: 5.0,  group: 'EWT' },
-  { Name: 'EWT 2% – Contractors (corp)',      Label: 'WC120 – Non-Individual', Rate: 2.0,  group: 'EWT' },
-  { Name: 'EWT 2% – Govt/GOCC services (corp)', Label: 'WC157 – Non-Individual', Rate: 2.0, group: 'EWT' },
-  { Name: 'EWT 1% – Top WA goods (corp)',     Label: 'WC158 – Non-Individual', Rate: 1.0,  group: 'EWT' },
-  { Name: 'EWT 2% – Top WA services (corp)', Label: 'WC160 – Non-Individual', Rate: 2.0,  group: 'EWT' },
-  { Name: 'EWT 1% – Govt/GOCC goods (corp)', Label: 'WC640 – Non-Individual', Rate: 1.0,  group: 'EWT' },
+  // ── GROUP 3: EWT / CWT GOVERNMENT WITHHELD ───────────────
+  { Name: 'Govt Withholding VAT – Goods',    Label: 'WV012 – Final withholding VAT on goods',    birRate: 5.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'Govt Withholding VAT – Services', Label: 'WV022 – Final withholding VAT on services', birRate: 5.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'Govt Withholding PT 3%',          Label: 'WB080 – Sec. 109BB percentage tax',         birRate: 3.0, managerRate: 100, group: 'GOVT' },
 
-  // FINAL WITHHOLDING TAX
-  { Name: 'FWT 20% – Royalties (individual)',    Label: 'WI250 – Citizens, residents, NRAETB', Rate: 20.0, group: 'FWT' },
-  { Name: 'FWT 20% – Royalties (corporation)',   Label: 'WC250 – Domestic & resident foreign corps', Rate: 20.0, group: 'FWT' },
+  // ── GROUP 4: FINAL WITHHOLDING TAX ───────────────────────
+  { Name: 'FWT 20% – Royalties (individual)',  Label: 'WI250 – Citizens, residents, NRAETB',           birRate: 20.0, managerRate: 100, group: 'FWT' },
+  { Name: 'FWT 20% – Royalties (corporation)', Label: 'WC250 – Domestic & resident foreign corps',     birRate: 20.0, managerRate: 100, group: 'FWT' },
 ];
 
 // ── EWT / CWT ATC LIST ───────────────────────────────────────
