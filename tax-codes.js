@@ -26,36 +26,37 @@ const TAX_CODE_TEMPLATES = [
 
   // ── GROUP 2: EWT / CWT ON INCOME PAYMENTS ────────────────
   // Manager rate = 100 (line amount = exact withholding amount; birRate used to back-calc tax base)
-  { Name: 'EWT 5% – Prof. fees ≤3M',         Label: 'WI010 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 10% – Prof. fees >3M/VAT',    Label: 'WI011 – Individual',     birRate: 10.0, managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 5% – Bookkeeping ≤3M',        Label: 'WI060 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 10% – Bookkeeping >3M/VAT',   Label: 'WI061 – Individual',     birRate: 10.0, managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 5% – Rentals',                Label: 'WI100 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 2% – Contractors',            Label: 'WI120 – Individual',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 10% – Medical >3M/VAT',       Label: 'WI150 – Individual',     birRate: 10.0, managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 5% – Medical ≤3M',            Label: 'WI151 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 2% – Govt/GOCC services',     Label: 'WI157 – Individual',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 1% – Top WA goods',           Label: 'WI158 – Individual',     birRate: 1.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 2% – Top WA services',        Label: 'WI160 – Individual',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 5% – Minerals/quarry',        Label: 'WI630 – Individual',     birRate: 5.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 1% – Govt/GOCC goods',        Label: 'WI640 – Individual',     birRate: 1.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 10% – Prof. fees ≤720K',      Label: 'WC010 – Non-Individual', birRate: 10.0, managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 15% – Prof. fees >720K',      Label: 'WC011 – Non-Individual', birRate: 15.0, managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 5% – Rentals (corp)',          Label: 'WC100 – Non-Individual', birRate: 5.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 2% – Contractors (corp)',      Label: 'WC120 – Non-Individual', birRate: 2.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 2% – Govt/GOCC services (corp)', Label: 'WC157 – Non-Individual', birRate: 2.0, managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 1% – Top WA goods (corp)',     Label: 'WC158 – Non-Individual', birRate: 1.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 2% – Top WA services (corp)', Label: 'WC160 – Non-Individual', birRate: 2.0,  managerRate: 100, group: 'EWT' },
-  { Name: 'EWT 1% – Govt/GOCC goods (corp)', Label: 'WC640 – Non-Individual', birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  // Name uses ATC-first format so ATC appears in all Manager reports, QAP, and 2307.
+  { Name: 'WI010 – Prof. fees ≤3M (5%)',          Label: 'Individual – Prof. fees ≤3M',          birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI011 – Prof. fees >3M/VAT (10%)',     Label: 'Individual – Prof. fees >3M/VAT',      birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'WI060 – Bookkeeping ≤3M (5%)',         Label: 'Individual – Bookkeeping ≤3M',         birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI061 – Bookkeeping >3M/VAT (10%)',    Label: 'Individual – Bookkeeping >3M/VAT',     birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'WI100 – Rentals (5%)',                  Label: 'Individual – Rentals',                 birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI120 – Contractors (2%)',              Label: 'Individual – Contractors',             birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI150 – Medical >3M/VAT (10%)',         Label: 'Individual – Medical >3M/VAT',         birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'WI151 – Medical ≤3M (5%)',              Label: 'Individual – Medical ≤3M',             birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI157 – Govt/GOCC services (2%)',       Label: 'Individual – Govt/GOCC services',      birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI158 – Top WA goods (1%)',             Label: 'Individual – Top WA goods',            birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI160 – Top WA services (2%)',          Label: 'Individual – Top WA services',         birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI630 – Minerals/quarry (5%)',          Label: 'Individual – Minerals/quarry',         birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WI640 – Govt/GOCC goods (1%)',          Label: 'Individual – Govt/GOCC goods',         birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WC010 – Prof. fees ≤720K (10%)',        Label: 'Non-Individual – Prof. fees ≤720K',    birRate: 10.0, managerRate: 100, group: 'EWT' },
+  { Name: 'WC011 – Prof. fees >720K (15%)',        Label: 'Non-Individual – Prof. fees >720K',    birRate: 15.0, managerRate: 100, group: 'EWT' },
+  { Name: 'WC100 – Rentals (5%)',                  Label: 'Non-Individual – Rentals',             birRate: 5.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WC120 – Contractors (2%)',              Label: 'Non-Individual – Contractors',         birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WC157 – Govt/GOCC services (2%)',       Label: 'Non-Individual – Govt/GOCC services',  birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WC158 – Top WA goods (1%)',             Label: 'Non-Individual – Top WA goods',        birRate: 1.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WC160 – Top WA services (2%)',          Label: 'Non-Individual – Top WA services',     birRate: 2.0,  managerRate: 100, group: 'EWT' },
+  { Name: 'WC640 – Govt/GOCC goods (1%)',          Label: 'Non-Individual – Govt/GOCC goods',     birRate: 1.0,  managerRate: 100, group: 'EWT' },
 
   // ── GROUP 3: EWT / CWT GOVERNMENT WITHHELD ───────────────
-  { Name: 'Govt Withholding VAT – Goods',    Label: 'WV012 – Final withholding VAT on goods',    birRate: 5.0, managerRate: 100, group: 'GOVT' },
-  { Name: 'Govt Withholding VAT – Services', Label: 'WV022 – Final withholding VAT on services', birRate: 5.0, managerRate: 100, group: 'GOVT' },
-  { Name: 'Govt Withholding PT 3%',          Label: 'WB080 – Sec. 109BB percentage tax',         birRate: 3.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'WV012 – Govt WHT VAT Goods (5%)',       Label: 'Final withholding VAT on goods',       birRate: 5.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'WV022 – Govt WHT VAT Services (5%)',    Label: 'Final withholding VAT on services',    birRate: 5.0, managerRate: 100, group: 'GOVT' },
+  { Name: 'WB080 – Govt WHT Percentage Tax (3%)',  Label: 'Sec. 109BB percentage tax',            birRate: 3.0, managerRate: 100, group: 'GOVT' },
 
   // ── GROUP 4: FINAL WITHHOLDING TAX ───────────────────────
-  { Name: 'FWT 20% – Royalties (individual)',  Label: 'WI250 – Citizens, residents, NRAETB',           birRate: 20.0, managerRate: 100, group: 'FWT' },
-  { Name: 'FWT 20% – Royalties (corporation)', Label: 'WC250 – Domestic & resident foreign corps',     birRate: 20.0, managerRate: 100, group: 'FWT' },
+  { Name: 'WI250 – Royalties Individual (20%)',    Label: 'FWT – Citizens, residents, NRAETB',         birRate: 20.0, managerRate: 100, group: 'FWT' },
+  { Name: 'WC250 – Royalties Corporation (20%)',   Label: 'FWT – Domestic & resident foreign corps',   birRate: 20.0, managerRate: 100, group: 'FWT' },
 ];
 
 // ── EWT / CWT ATC LIST ───────────────────────────────────────
