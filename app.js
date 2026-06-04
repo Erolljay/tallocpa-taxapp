@@ -30,8 +30,6 @@ var businessSelect = document.getElementById('business');
     }
     businessSelect.innerHTML = '<option value="">-- select a business --</option>' +
       names.map(function(n){ return '<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'; }).join('');
-    var last = localStorage.getItem('tallocpa_last_biz');
-    if (last && names.indexOf(last) >= 0) businessSelect.value = last;
     businessSelect.dispatchEvent(new Event('change'));
   } catch(e) {
     businessSelect.innerHTML = '<option value="">(could not load)</option>';
@@ -40,10 +38,16 @@ var businessSelect = document.getElementById('business');
 })();
 
 businessSelect && businessSelect.addEventListener('change', function() {
-  localStorage.setItem('tallocpa_last_biz', businessSelect.value);
   resetCF();
   var active = document.querySelector('.tab.active');
   if (active) activateTab(active.dataset.view);
+  // Explicitly refresh the active CF section after mount to ensure data loads
+  var view = active ? active.dataset.view : '';
+  var sectionMap = { business: 'business', customers: 'customers', suppliers: 'suppliers', employees: 'employees', 'payslip-items': 'payslipItems' };
+  var section = sectionMap[view];
+  if (section && cfControllers[section] && typeof cfControllers[section].refresh === 'function') {
+    cfControllers[section].refresh();
+  }
 });
 
 function currentBiz() { return businessSelect ? businessSelect.value : ''; }
@@ -198,129 +202,107 @@ async function loadTaxCodesTab() {
     var res = await apiRequest('GET', '/api4/tax-code-batch?Business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
     _taxCodes = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
   } catch(err) {
-    out.innerHTML = '<div class="error">Failed: ' + escHtml(err.message) + '</div>';
+    out.innerHTML = '<div class="error">Failed to load: ' + escHtml(err.message) + '</div>';
     return;
   }
   renderTaxCodesOutput(biz, out);
 }
 
+// ── TAX CODE GROUP DEFINITIONS ────────────────────────────────
+var TC_GROUPS = [
+  { key: 'VAT',  label: 'Business Tax Codes — VAT',                        sub: 'Output and input VAT for VAT-registered businesses' },
+  { key: 'PT',   label: 'Business Tax Codes — Percentage Tax',             sub: 'PT010, PT040, PT101 — for non-VAT / specific industries' },
+  { key: 'EWT',  label: 'EWT / CWT on Income Payments',                   sub: 'Withheld from suppliers (WI/WC series) — Manager rate = 100%' },
+  { key: 'GOVT', label: 'EWT / CWT — Government Withheld from You',       sub: 'Final withholding VAT (WV) + PT (WB) — Manager rate = 100%' },
+  { key: 'FWT',  label: 'Final Withholding Tax',                          sub: 'Passive income: royalties, interest, dividends — Manager rate = 100%' },
+];
+
 function renderTaxCodesOutput(biz, out) {
-  var setup  = getSetup(biz) || {};
-  var vatMap = setup.vatMapping || {};
-  var ewtMap = setup.ewtMapping || {};
-  var fwtMap = setup.fwtMapping || {};
-  var ptMap  = setup.ptMapping  || {};
-
-  var tcOpts = '<option value="">-- not mapped --</option>' +
-    _taxCodes.map(function(tc){
-      return '<option value="'+escHtml(tc.key)+'">'+escHtml(tc.value.Name || tc.value.name || tc.key)+'</option>';
-    }).join('');
-
-  // 1. Tax code templates
-  var groups = {};
-  TAX_CODE_TEMPLATES.forEach(function(t){
-    if (!groups[t.group]) groups[t.group] = [];
-    groups[t.group].push(t);
+  // Build name → {key, value} lookup from Manager tax codes
+  var tcByName = {};
+  _taxCodes.forEach(function(tc) {
+    var n = (tc.value.Name || tc.value.name || '').toLowerCase().trim();
+    if (n) tcByName[n] = tc;
   });
 
-  var html = sectionHeading('Tax code templates', '');
-  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;">';
-  html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;">Name</th><th style="padding:5px 8px;">Rate</th><th style="padding:5px 8px;">Group</th><th style="padding:5px 8px;">Status</th><th></th></tr></thead><tbody>';
+  var html = '<p style="font-size:11px;color:#6b7280;margin-bottom:16px;">' +
+    'All tax codes are pre-defined. Status shows whether each code exists in this business. ' +
+    'Click <strong>Create</strong> to add missing codes or <strong>Create All Missing</strong> per group.' +
+    '</p>';
 
-  Object.keys(groups).forEach(function(g){
-    groups[g].forEach(function(tpl){
-      var match = _taxCodes.find(function(tc){
-        return (tc.value.Name||tc.value.name||'').toLowerCase() === tpl.Name.toLowerCase();
-      });
+  TC_GROUPS.forEach(function(grp) {
+    var codes = TAX_CODE_TEMPLATES.filter(function(t){ return t.group === grp.key; });
+    if (!codes.length) return;
+
+    var missing = codes.filter(function(t){ return !tcByName[t.Name.toLowerCase().trim()]; });
+
+    html += '<div style="margin-bottom:24px;">';
+    html += '<div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1.5px solid #e5e7eb;padding-bottom:6px;margin-bottom:8px;">';
+    html += '<div>';
+    html += '<span style="font-size:13px;font-weight:600;color:#1a2f5e;">'+escHtml(grp.label)+'</span>';
+    html += '<span style="font-size:11px;color:#9ca3af;margin-left:8px;">'+escHtml(grp.sub)+'</span>';
+    html += '</div>';
+    if (missing.length) {
+      html += '<button class="secondary" data-action="create-group" data-group="'+escHtml(grp.key)+'" style="font-size:11px;padding:3px 10px;">Create All Missing ('+missing.length+')</button>';
+    } else {
+      html += '<span style="font-size:11px;color:#27ae60;font-weight:500;">✓ All present</span>';
+    }
+    html += '</div>';
+
+    html += '<table style="width:100%;border-collapse:collapse;">';
+    html += '<thead><tr style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">';
+    html += '<th style="text-align:left;padding:4px 8px;font-weight:500;">Tax Code Name</th>';
+    html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">BIR Rate</th>';
+    html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">Manager Rate</th>';
+    html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">Status</th>';
+    html += '<th style="padding:4px 8px;"></th>';
+    html += '</tr></thead><tbody>';
+
+    codes.forEach(function(tpl) {
+      var match = tcByName[tpl.Name.toLowerCase().trim()];
+      var birRateStr  = tpl.birRate > 0 ? tpl.birRate + '%' : '0%';
+      var mgrRateStr  = tpl.managerRate === 100 ? '100% *' : tpl.managerRate + '%';
+      var badge = match
+        ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">✓ Found</span>'
+        : '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Missing</span>';
+      var action = match
+        ? '<span style="font-size:11px;color:#9ca3af;">—</span>'
+        : '<button class="secondary" data-action="create-tc" data-name="'+escHtml(tpl.Name)+'" data-mgr-rate="'+tpl.managerRate+'" style="font-size:11px;padding:3px 10px;">Create</button>';
       html += '<tr style="border-bottom:.5px solid #f3f4f6;">';
       html += '<td style="padding:6px 8px;font-size:12px;font-weight:500;">'+escHtml(tpl.Name)+'</td>';
-      html += '<td style="padding:6px 8px;font-size:12px;">'+tpl.Rate+'%</td>';
-      html += '<td style="padding:6px 8px;font-size:11px;color:#9ca3af;">'+escHtml(tpl.group)+'</td>';
-      html += '<td style="padding:6px 8px;">'+(match
-        ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Configured</span>'
-        : '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not present</span>')+'</td>';
-      html += '<td style="padding:6px 8px;">'+(match
-        ? '<button class="secondary" disabled style="opacity:.4;font-size:11px;">OK</button>'
-        : '<button class="secondary" data-action="create-tc" data-name="'+escHtml(tpl.Name)+'" data-rate="'+tpl.Rate+'" style="font-size:11px;">Create</button>')+'</td>';
+      html += '<td style="padding:6px 8px;font-size:12px;text-align:center;color:#374151;">'+birRateStr+'</td>';
+      html += '<td style="padding:6px 8px;font-size:12px;text-align:center;color:'+(tpl.managerRate===100?'#b45309':'#374151')+';">'+mgrRateStr+'</td>';
+      html += '<td style="padding:6px 8px;text-align:center;">'+badge+'</td>';
+      html += '<td style="padding:6px 8px;text-align:center;">'+action+'</td>';
       html += '</tr>';
     });
+    html += '</tbody></table>';
+    if (grp.key !== 'VAT' && grp.key !== 'PT') {
+      html += '<p style="font-size:10px;color:#9ca3af;margin:4px 8px 0;">* Manager rate 100% = line amount entered by accountant IS the withholding tax amount.</p>';
+    }
+    html += '</div>';
   });
-  html += '</tbody></table>';
-
-  // 2. VAT Mapping
-  html += sectionHeading('VAT Mapping', '');
-  html += buildMappingTable('vat', VAT_CATEGORIES.map(function(c){
-    return { key: c.key, label: c.label, sub: c.side === 'sales' ? 'Sales' : 'Purchase', selected: vatMap[c.key] || '' };
-  }), tcOpts);
-  html += saveMappingBtn('vat', 'Save VAT Mapping');
-
-  // 3. EWT / CWT Mapping
-  html += sectionHeading('EWT / CWT Mapping', 'Purchases (0619E, 1601EQ, QAP) and sales / receipts (SAWT, 2307)');
-  html += '<p style="font-size:11px;font-weight:500;color:#6b7280;margin:0 0 4px;">Individual</p>';
-  html += buildMappingTable('ewt', EWT_ATC_LIST.filter(function(a){ return a.type==='Individual'; }).map(function(a){
-    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: ewtMap[a.atc] || '' };
-  }), tcOpts);
-  html += '<p style="font-size:11px;font-weight:500;color:#6b7280;margin:12px 0 4px;">Non-Individual</p>';
-  html += buildMappingTable('ewt', EWT_ATC_LIST.filter(function(a){ return a.type==='Non-Individual'; }).map(function(a){
-    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: ewtMap[a.atc] || '' };
-  }), tcOpts);
-  html += saveMappingBtn('ewt', 'Save EWT / CWT Mapping');
-
-  // 4. FWT Mapping
-  html += sectionHeading('FWT Mapping', '');
-  html += buildMappingTable('fwt', FWT_ATC_LIST.map(function(a){
-    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: fwtMap[a.atc] || '' };
-  }), tcOpts);
-  html += saveMappingBtn('fwt', 'Save FWT Mapping');
-
-  // 5. Percentage Tax Mapping
-  html += sectionHeading('Percentage Tax Mapping', '');
-  html += buildMappingTable('pt', PT_ATC_LIST.map(function(a){
-    return { key: a.atc, label: a.atc+' - '+a.desc, sub: a.rate+'%', selected: ptMap[a.atc] || '' };
-  }), tcOpts);
-  html += saveMappingBtn('pt', 'Save Percentage Tax Mapping');
 
   out.innerHTML = html;
 
+  // Single create
   out.querySelectorAll('[data-action="create-tc"]').forEach(function(btn){
-    btn.addEventListener('click', function(){ onCreateTaxCode(btn, biz, out); });
+    btn.addEventListener('click', function(){ onCreateTaxCode(btn, biz); });
   });
-  out.querySelectorAll('[data-save-mapping]').forEach(function(btn){
-    btn.addEventListener('click', function(){ onSaveMapping(btn, biz); });
+  // Create all missing in group
+  out.querySelectorAll('[data-action="create-group"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ onCreateGroupTaxCodes(btn, biz); });
   });
 }
 
-function sectionHeading(title, sub) {
-  return '<h3 style="margin:0 0 8px;font-size:13px;font-weight:500;border-bottom:.5px solid #e5e7eb;padding-bottom:6px;">'+escHtml(title)+
-    (sub ? '<small style="font-weight:400;font-size:11px;color:#9ca3af;margin-left:8px;">'+escHtml(sub)+'</small>' : '')+
-    '</h3>';
-}
-
-function buildMappingTable(prefix, rows, tcOpts) {
-  var html = '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">';
-  html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;width:40%;">BIR Category</th><th style="padding:5px 8px;text-align:center;width:10%;"></th><th style="padding:5px 8px;font-weight:500;">Tax code in Manager</th></tr></thead><tbody>';
-  rows.forEach(function(r){
-    var opts = tcOpts.replace('value="'+escHtml(r.selected)+'"', 'value="'+escHtml(r.selected)+'" selected');
-    html += '<tr style="border-bottom:.5px solid #f3f4f6;">';
-    html += '<td style="padding:6px 8px;font-size:12px;font-weight:500;">'+escHtml(r.label)+'</td>';
-    html += '<td style="padding:6px 8px;font-size:10px;color:#9ca3af;text-align:center;">'+escHtml(r.sub||'')+'</td>';
-    html += '<td style="padding:6px 8px;"><select class="mapping-sel" data-prefix="'+prefix+'" data-key="'+escHtml(r.key)+'" style="width:100%;font-size:12px;">'+opts+'</select></td>';
-    html += '</tr>';
-  });
-  html += '</tbody></table>';
-  return html;
-}
-
-function saveMappingBtn(prefix, label) {
-  return '<div style="display:flex;justify-content:flex-end;margin-bottom:28px;"><button class="primary" data-save-mapping="'+prefix+'" style="font-size:12px;">'+escHtml(label)+'</button></div>';
-}
-
-async function onCreateTaxCode(btn, biz, out) {
-  btn.disabled = true; btn.textContent = 'Creating...';
+async function onCreateTaxCode(btn, biz) {
+  var name    = btn.dataset.name;
+  var mgrRate = parseFloat(btn.dataset.mgrRate);
+  btn.disabled = true; btn.textContent = 'Creating…';
   try {
     await apiRequest('POST', '/api4/tax-code', {
       Business: biz,
-      Value: { Name: btn.dataset.name, Rate: parseFloat(btn.dataset.rate) / 100 }
+      Value: { Name: name, Rate: mgrRate / 100 }
     });
     await loadTaxCodesTab();
   } catch(err) {
@@ -329,20 +311,32 @@ async function onCreateTaxCode(btn, biz, out) {
   }
 }
 
-function onSaveMapping(btn, biz) {
-  var prefix = btn.dataset.saveMapping;
-  var captured = {};
-  document.querySelectorAll('.mapping-sel[data-prefix="'+prefix+'"]').forEach(function(sel){
-    captured[sel.dataset.key] = sel.value;
+async function onCreateGroupTaxCodes(btn, biz) {
+  var grpKey  = btn.dataset.group;
+  var tcByName = {};
+  _taxCodes.forEach(function(tc){
+    var n = (tc.value.Name||tc.value.name||'').toLowerCase().trim();
+    if (n) tcByName[n] = true;
   });
-  var keyMap = { vat:'vatMapping', ewt:'ewtMapping', fwt:'fwtMapping', pt:'ptMapping' };
-  var existing = getSetup(biz) || {};
-  // EWT has two tables (Individual + Non-Individual) - merge instead of overwrite
-  var merged = prefix === 'ewt'
-    ? Object.assign({}, existing.ewtMapping || {}, captured)
-    : captured;
-  saveSetup(biz, Object.assign({}, existing, { [keyMap[prefix]]: merged }));
-  var orig = btn.textContent;
-  btn.textContent = 'Saved'; btn.disabled = true;
-  setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1500);
+  var missing = TAX_CODE_TEMPLATES.filter(function(t){
+    return t.group === grpKey && !tcByName[t.Name.toLowerCase().trim()];
+  });
+  if (!missing.length) return;
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    for (var i = 0; i < missing.length; i++) {
+      await apiRequest('POST', '/api4/tax-code', {
+        Business: biz,
+        Value: { Name: missing[i].Name, Rate: missing[i].managerRate / 100 }
+      });
+    }
+    await loadTaxCodesTab();
+  } catch(err) {
+    btn.disabled = false; btn.textContent = 'Create All Missing';
+    alert('Failed on "'+missing[i]+'": ' + err.message);
+  }
 }
+
+// placeholder so nothing breaks if old ref exists
+async function onSaveMapping() {}
+
