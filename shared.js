@@ -57,13 +57,10 @@ async function loadBusinesses(selectId, onchange) {
     sel.innerHTML = App.businesses.map(b =>
       `<option value="${escHtml(b.name)}">${escHtml(b.name)}</option>`
     ).join('');
-    const last = localStorage.getItem('tallocpa_last_business');
-    if (last && App.businesses.find(b => b.name === last)) sel.value = last;
     App.currentBusiness = sel.value || App.businesses[0]?.name || '';
     sel.value = App.currentBusiness;
     sel.addEventListener('change', () => {
       App.currentBusiness = sel.value;
-      localStorage.setItem('tallocpa_last_business', sel.value);
       if (onchange) onchange();
     });
     if (onchange && App.currentBusiness) onchange();
@@ -74,15 +71,188 @@ async function loadBusinesses(selectId, onchange) {
   }
 }
 
-// ── STORAGE HELPERS ──────────────────────────────────────────
-function getSetup(biz)         { return tryParse(localStorage.getItem(`tallocpa_setup_${biz}`)); }
-function saveSetup(biz, d)     { localStorage.setItem(`tallocpa_setup_${biz}`, JSON.stringify(d)); }
-function getCustomers(biz)     { return tryParse(localStorage.getItem(`tallocpa_customers_${biz}`)) || {}; }
-function saveCustomers(biz, d) { localStorage.setItem(`tallocpa_customers_${biz}`, JSON.stringify(d)); }
-function getSuppliers(biz)     { return tryParse(localStorage.getItem(`tallocpa_suppliers_${biz}`)) || {}; }
-function saveSuppliers(biz, d) { localStorage.setItem(`tallocpa_suppliers_${biz}`, JSON.stringify(d)); }
+// ── REPORT CONTEXT — for pages opened via Manager Custom Button ──
+// Loads all businesses and auto-selects if single; otherwise renders
+// a compact dropdown into containerEl for the user to pick.
+// Returns the selected business name once ready.
+async function getReportBusiness(containerEl) {
+  const res = await apiRequest('GET', '/api4/businesses');
+  const businesses = res?.businesses || [];
+  if (!businesses.length) throw new Error('No businesses found in Manager.');
+  if (businesses.length === 1) {
+    App.currentBusiness = businesses[0].name;
+    return businesses[0].name;
+  }
+  // Multiple businesses — render a small selector
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;font-size:12px;';
+    wrap.innerHTML = `<strong>Business:</strong>
+      <select id="report-biz-sel" style="font-size:12px;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;">
+        ${businesses.map(b => `<option value="${escHtml(b.name)}">${escHtml(b.name)}</option>`).join('')}
+      </select>
+      <button id="report-biz-ok" class="btn btn-primary" style="font-size:11px;padding:4px 12px;">Select</button>`;
+    if (containerEl) containerEl.prepend(wrap);
+    document.getElementById('report-biz-ok').addEventListener('click', () => {
+      const val = document.getElementById('report-biz-sel').value;
+      App.currentBusiness = val;
+      wrap.remove();
+      resolve(val);
+    });
+  });
+}
+
+// ── MANAGER MAPPING GUIDS ────────────────────────────────────
+// Stored as JSON strings inside business-details.customFields
+const MAPPING_GUIDS = {
+  vatMapping: 'b1r00099-0000-4000-a000-000000000001',
+  ewtMapping: 'b1r00099-0000-4000-a000-000000000002',
+  fwtMapping: 'b1r00099-0000-4000-a000-000000000003',
+  ptMapping:  'b1r00099-0000-4000-a000-000000000004',
+};
+
+// Load business-details from Manager (includes BIR custom fields + mappings)
+async function loadBizDetails(biz) {
+  const model = await apiRequest('GET', `/api4/business-details?Business=${encodeURIComponent(biz)}`);
+  return model || {};
+}
+
+// Save updated model back to Manager
+async function saveBizDetails(biz, model) {
+  await apiRequest('PUT', '/api4/business-details', { Business: biz, Value: model });
+}
+
+// Read a specific mapping from a business-details model
+function readMapping(model, type) {
+  const guid = MAPPING_GUIDS[type];
+  if (!guid) return {};
+  const raw = (model.customFields || {})[guid];
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+
+// Write a mapping into a business-details model (returns updated model)
+function writeMapping(model, type, data) {
+  const guid = MAPPING_GUIDS[type];
+  if (!guid) return model;
+  const updated = Object.assign({}, model);
+  updated.customFields = Object.assign({}, model.customFields || {});
+  updated.customFields[guid] = JSON.stringify(data);
+  return updated;
+}
 
 function tryParse(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
+
+// ── BIR FIELD GUIDs (used by custom-fields.js AND reports) ───
+// All BIR data lives in Manager. Reports call loadSetup / loadPartyBIR
+// to fetch directly — no localStorage.
+
+const BIZ_GUIDS = {
+  tin:           'b1r00001-0000-4000-a000-000000000001',
+  rdoCode:       'b1r00001-0000-4000-a000-000000000002',
+  branchCode:    'b1r00001-0000-4000-a000-000000000013',
+  classification:'b1r00001-0000-4000-a000-000000000004',
+  lineOfBusiness:'b1r00001-0000-4000-a000-000000000005',
+  phone:         'b1r00001-0000-4000-a000-000000000015',
+  email:         'b1r00001-0000-4000-a000-000000000016',
+  companyName:   'b1r00001-0000-4000-a000-000000000009',
+  lastName:      'b1r00001-0000-4000-a000-000000000010',
+  firstName:     'b1r00001-0000-4000-a000-000000000011',
+  middleName:    'b1r00001-0000-4000-a000-000000000012',
+  substreet:     'b1r00001-0000-4000-a000-000000000017',
+  street:        'b1r00001-0000-4000-a000-000000000018',
+  barangay:      'b1r00001-0000-4000-a000-000000000019',
+  municipality:  'b1r00001-0000-4000-a000-000000000020',
+  cityProvince:  'b1r00001-0000-4000-a000-000000000021',
+  zipCode:       'b1r00001-0000-4000-a000-000000000003',
+  authRep:       'b1r00001-0000-4000-a000-000000000014',
+  authRepTitle:  'b1r00001-0000-4000-a000-000000000022',
+};
+
+const PARTY_GUIDS = {
+  type:        'b1r00002-0000-4000-a000-000000000001',
+  tin:         'b1r00002-0000-4000-a000-000000000002',
+  branchCode:  'b1r00002-0000-4000-a000-000000000003',
+  companyName: 'b1r00002-0000-4000-a000-000000000004',
+  lastName:    'b1r00002-0000-4000-a000-000000000005',
+  firstName:   'b1r00002-0000-4000-a000-000000000006',
+  middleName:  'b1r00002-0000-4000-a000-000000000007',
+  address1:    'b1r00002-0000-4000-a000-000000000008',
+  address2:    'b1r00002-0000-4000-a000-000000000009',
+};
+
+// Load business BIR setup from Manager and return a plain object.
+// Used by all report pages instead of localStorage.
+async function loadSetup(biz) {
+  try {
+    const model = await loadBizDetails(biz);
+    const cf    = model.customFields || model.CustomFields || {};
+    const cls   = cf[BIZ_GUIDS.classification] || '';
+    const isInd = cls === 'Individual';
+    const ln    = cf[BIZ_GUIDS.lastName]  || '';
+    const fn    = cf[BIZ_GUIDS.firstName] || '';
+    const mn    = cf[BIZ_GUIDS.middleName]|| '';
+    const corp  = cf[BIZ_GUIDS.companyName] || '';
+    const taxpayerName = isInd
+      ? [ln, fn, mn].filter(Boolean).join(', ')
+      : corp;
+    const addrParts = [
+      cf[BIZ_GUIDS.substreet], cf[BIZ_GUIDS.street], cf[BIZ_GUIDS.barangay],
+      cf[BIZ_GUIDS.municipality], cf[BIZ_GUIDS.cityProvince],
+    ].filter(Boolean);
+    return {
+      tin:            cf[BIZ_GUIDS.tin]            || '',
+      rdoCode:        cf[BIZ_GUIDS.rdoCode]         || '',
+      branchCode:     cf[BIZ_GUIDS.branchCode]      || '',
+      classification: cls,
+      lineOfBusiness: cf[BIZ_GUIDS.lineOfBusiness]  || '',
+      companyName:    corp,
+      taxpayerName,
+      lastName: ln, firstName: fn, middleName: mn,
+      address:  addrParts.join(', '),
+      zipCode:  cf[BIZ_GUIDS.zipCode]       || '',
+      authRep:  cf[BIZ_GUIDS.authRep]       || '',
+      authRepTitle: cf[BIZ_GUIDS.authRepTitle] || '',
+      // Tax mappings stored as JSON blobs keyed by MAPPING_GUIDS
+      vatMapping: readMapping(model, 'vatMapping'),
+      ewtMapping: readMapping(model, 'ewtMapping'),
+    };
+  } catch(e) {
+    console.warn('loadSetup failed:', e.message);
+    return null;
+  }
+}
+
+// Load all customers OR suppliers for a business with their BIR custom fields.
+// Returns { [managerKey]: { name, tin, type, companyName, ... } }
+async function loadPartyBIR(biz, partyType) {
+  const batchPath = partyType === 'customer'
+    ? '/api4/customer-batch'
+    : '/api4/supplier-batch';
+  try {
+    const all = await fetchAllBatch(batchPath, biz);
+    const result = {};
+    all.forEach(it => {
+      const rec = it.item || {};
+      const cf  = rec.customFields || rec.CustomFields || {};
+      result[it.key] = {
+        name:        rec.name || rec.Name || it.key,
+        type:        cf[PARTY_GUIDS.type]        || 'Non-Individual',
+        tin:         cf[PARTY_GUIDS.tin]         || '',
+        branchCode:  cf[PARTY_GUIDS.branchCode]  || '',
+        companyName: cf[PARTY_GUIDS.companyName] || '',
+        lastName:    cf[PARTY_GUIDS.lastName]    || '',
+        firstName:   cf[PARTY_GUIDS.firstName]   || '',
+        middleName:  cf[PARTY_GUIDS.middleName]  || '',
+        address1:    cf[PARTY_GUIDS.address1]    || '',
+        address2:    cf[PARTY_GUIDS.address2]    || '',
+      };
+    });
+    return result;
+  } catch(e) {
+    console.warn('loadPartyBIR failed:', e.message);
+    return {};
+  }
+}
 
 // ── UTILITIES ────────────────────────────────────────────────
 function escHtml(s) {
