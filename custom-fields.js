@@ -188,7 +188,7 @@
       // Load from Manager in background -- populate when ready
       var statusEl = container.querySelector('#cf-biz-status');
       if (statusEl) { statusEl.textContent = 'Loading...'; statusEl.style.color = '#6b7280'; }
-      apiRequest('GET', '/api4/business-details?Business=' + encodeURIComponent(business))
+      apiRequest('GET', '/api4/business-details?business=' + encodeURIComponent(business))
         .then(function(model) {
           if (statusEl) statusEl.textContent = '';
           if (!model) return;
@@ -318,13 +318,18 @@
         if (el) newCF[f.id] = el.value;
       });
 
-      // Write to Manager (camelCase envelope required by Manager API4)
+      // Write to Manager — only editable fields per /openapi/put-business-details.json
+      // Exclude: timestamp, key, id (timestamp causes int64 precision errors in JS)
       var managerOk = false;
       try {
-        var updated = Object.assign({}, currentModel || {});
-        updated.customFields = Object.assign({}, (currentModel || {}).customFields || {}, newCF);
-        await apiRequest('PUT', '/api4/business-details', { business: business, value: updated });
-        currentModel = updated;
+        var mergedCF = Object.assign({}, (currentModel || {}).customFields || {}, newCF);
+        var bizValue = {
+          name:         (currentModel || {}).name    || null,
+          address:      (currentModel || {}).address || null,
+          customFields: mergedCF,
+        };
+        await apiRequest('PUT', '/api4/business-details', { business: business, value: bizValue });
+        currentModel = Object.assign({}, currentModel || {}, { customFields: mergedCF });
         managerOk = true;
       } catch(err) {
         console.warn('business-details PUT failed:', err.message);
@@ -344,6 +349,33 @@
 
   // ---- CUSTOMERS / SUPPLIERS SECTION ----
 
+  // Builds a clean PUT value per /openapi/put-customer.json (same schema for supplier).
+  // Excludes: timestamp, id, key, and all computed is*/has* flags that cause 400.
+  function buildPartyValue(v, newCustomFields) {
+    return {
+      name:            v.name            !== undefined ? v.name            : null,
+      code:            v.code            !== undefined ? v.code            : null,
+      creditLimit:     v.creditLimit     !== undefined ? v.creditLimit     : 0,
+      currency:        v.currency        !== undefined ? v.currency        : null,
+      billingAddress:  v.billingAddress  !== undefined ? v.billingAddress  : null,
+      deliveryAddress: v.deliveryAddress !== undefined ? v.deliveryAddress : null,
+      email:           v.email           !== undefined ? v.email           : null,
+      division:        v.division        !== undefined ? v.division        : null,
+      controlAccount:  v.controlAccount  !== undefined ? v.controlAccount  : null,
+      hasDefaultDueDateDays: v.hasDefaultDueDateDays || false,
+      defaultDueDateDays:    v.defaultDueDateDays    !== undefined ? v.defaultDueDateDays : null,
+      hasDefaultHourlyRate:  v.hasDefaultHourlyRate  || false,
+      defaultHourlyRate:     v.defaultHourlyRate     !== undefined ? v.defaultHourlyRate  : 0,
+      inactive:              v.inactive              || false,
+      customFields:          newCustomFields,
+      customFields2:         v.customFields2         !== undefined ? v.customFields2 : null,
+      hasDefaultBillingAddress:  v.hasDefaultBillingAddress  || false,
+      defaultBillingAddress:     v.defaultBillingAddress     !== undefined ? v.defaultBillingAddress  : null,
+      hasDefaultDeliveryAddress: v.hasDefaultDeliveryAddress || false,
+      defaultDeliveryAddress:    v.defaultDeliveryAddress    !== undefined ? v.defaultDeliveryAddress : null,
+    };
+  }
+
   function mountPartySection(container, partyType) {
     var batchPath = partyType === 'customer' ? '/api4/customer-batch' : '/api4/supplier-batch';
     var putPath   = partyType === 'customer' ? '/api4/customer'       : '/api4/supplier';
@@ -354,7 +386,7 @@
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
       container.innerHTML = spinner('Loading ' + partyType + 's from Manager…');
       try {
-        var res = await apiRequest('GET', batchPath + '?Business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
+        var res = await apiRequest('GET', batchPath + '?business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
         var items = (res && res.items) ? res.items : [];
         cache = items.map(function(it) {
           return {
@@ -458,10 +490,11 @@
         { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
         { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
       ];
-      var updated = Object.assign({}, rec.value, { customFields: patchCF(rec.value.customFields, updates) });
+      var newCF    = patchCF(rec.value.customFields || {}, updates);
+      var putValue = buildPartyValue(rec.value, newCF);
       try {
-        await apiRequest('PUT', putPath, { business: business, key: key, value: updated });
-        rec.value = updated;
+        await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
+        rec.value = Object.assign({}, rec.value, { customFields: newCF });
         flash(btn, true);
       } catch(err) {
         console.error(err);
@@ -495,9 +528,10 @@
             { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
             { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
           ];
-          var updated = Object.assign({}, rec.value, { customFields: patchCF(rec.value.customFields, updates) });
-          await apiRequest('PUT', putPath, { business: business, key: key, value: updated });
-          rec.value = updated;
+          var newCF    = patchCF(rec.value.customFields || {}, updates);
+          var putValue = buildPartyValue(rec.value, newCF);
+          await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
+          rec.value = Object.assign({}, rec.value, { customFields: newCF });
           ok++;
         } catch(e) { fail++; }
       }
@@ -522,7 +556,7 @@
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
       container.innerHTML = spinner('Loading employees from Manager…');
       try {
-        var res = await apiRequest('GET', '/api4/employee-batch?Business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
+        var res = await apiRequest('GET', '/api4/employee-batch?business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
         var items = (res && res.items) ? res.items : [];
         cache = items.map(function(it) {
           return { key: it.key, value: it.item || {}, displayName: (it.item || {}).name || (it.item || {}).Name || it.key };
