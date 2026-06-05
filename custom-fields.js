@@ -328,8 +328,7 @@
           address:      (currentModel || {}).address || null,
           customFields: mergedCF,
         };
-      const url = `/api4/business-details?business=${encodeURIComponent(business)}`;
-      await apiRequest('PUT', url, { value: bizValue });
+        await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
         currentModel = Object.assign({}, currentModel || {}, { customFields: mergedCF });
         managerOk = true;
       } catch(err) {
