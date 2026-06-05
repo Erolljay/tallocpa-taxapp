@@ -328,7 +328,7 @@
           address:      (currentModel || {}).address || null,
           customFields: mergedCF,
         };
-        await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
+        await apiRequest('PUT', '/api4/business-details', { value: bizValue });
         currentModel = Object.assign({}, currentModel || {}, { customFields: mergedCF });
         managerOk = true;
       } catch(err) {
@@ -348,6 +348,17 @@
   }
 
   // ---- CUSTOMERS / SUPPLIERS SECTION ----
+
+  // Generic safe value builder — copies all fields except timestamp/id/key, then applies overrides.
+  // Use for entities (employee, payslip items) where we don't have a full field whitelist.
+  function buildSafeValue(v, overrides) {
+    var result = {};
+    Object.keys(v || {}).forEach(function(k) {
+      if (k === 'timestamp' || k === 'id' || k === 'key') return;
+      result[k] = v[k];
+    });
+    return Object.assign(result, overrides || {});
+  }
 
   // Builds a clean PUT value per /openapi/put-customer.json (same schema for supplier).
   // Excludes: timestamp, id, key, and all computed is*/has* flags that cause 400.
@@ -493,7 +504,7 @@
       var newCF    = patchCF(rec.value.customFields || {}, updates);
       var putValue = buildPartyValue(rec.value, newCF);
       try {
-        await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
+        await apiRequest('PUT', putPath, { key: key, value: putValue });
         rec.value = Object.assign({}, rec.value, { customFields: newCF });
         flash(btn, true);
       } catch(err) {
@@ -530,7 +541,7 @@
           ];
           var newCF    = patchCF(rec.value.customFields || {}, updates);
           var putValue = buildPartyValue(rec.value, newCF);
-          await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
+          await apiRequest('PUT', putPath, { key: key, value: putValue });
           rec.value = Object.assign({}, rec.value, { customFields: newCF });
           ok++;
         } catch(e) { fail++; }
@@ -621,9 +632,9 @@
       if (!business) return;
       var btn = document.getElementById('cf-emp-save-btn');
       var updates = collectValues(e.currentTarget, EMPLOYEE_FIELDS);
-      var updated = Object.assign({}, emp.value, { customFields: patchCF(emp.value.customFields, updates) });
+      var updated = buildSafeValue(emp.value, { customFields: patchCF(emp.value.customFields, updates) });
       try {
-        await apiRequest('PUT', '/api4/employee', { Business: business, Key: emp.key, Value: updated });
+        await apiRequest('PUT', '/api4/employee', { key: emp.key, value: updated });
         emp.value = updated;
         flash(btn, true);
       } catch(err) {
@@ -704,9 +715,9 @@
       var rec = caches[typeKey][idx];
       if (!rec) return;
       var newCat = row.querySelector('[data-role="cat"]').value || null;
-      var updated = Object.assign({}, rec.value, { reportingCategory: newCat });
+      var updated = buildSafeValue(rec.value, { reportingCategory: newCat });
       try {
-        await apiRequest('PUT', '/api4/' + type.endpoint, { Business: business, Key: key, Value: updated });
+        await apiRequest('PUT', '/api4/' + type.endpoint, { key: key, value: updated });
         rec.value = updated;
         flash(btn, true);
       } catch(err) {
