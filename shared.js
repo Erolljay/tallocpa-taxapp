@@ -119,7 +119,7 @@ async function loadBizDetails(biz) {
 
 // Save updated model back to Manager
 async function saveBizDetails(biz, model) {
-  await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(biz)}`, { value: model });
+  await apiRequest('PUT', '/api4/business-details', { value: model });
 }
 
 // Read a specific mapping from a business-details model
