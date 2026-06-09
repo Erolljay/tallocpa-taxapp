@@ -1,8 +1,16 @@
 // Custom-field setup for the PH (Philippines BIR) extension.
+// Field GUIDs are stable identifiers -- DO NOT CHANGE after first use.
+// Uses postMessage bridge (apiRequest from shared.js) -- NOT direct fetch.
+//
+// Business section mirrors AU extension:
+//   - Data stored IN Manager's business record as custom fields
+//   - Form renders immediately (no spinner), loads from Manager in background
+//   - On save: writes directly to Manager business record (no localStorage)
 
 (function () {
 
   var BUSINESS_FIELDS = [
+    // [0] Identity
     { id: 'b1r00001-0000-4000-a000-000000000001', label: 'TIN',                      type: 'text',   placeholder: '000-000-000-000' },
     { id: 'b1r00001-0000-4000-a000-000000000002', label: 'RDO Code',                 type: 'text',   placeholder: 'e.g. 083' },
     { id: 'b1r00001-0000-4000-a000-000000000013', label: 'Branch Code',              type: 'text',   placeholder: '000 (Head Office = 000)' },
@@ -10,16 +18,20 @@
     { id: 'b1r00001-0000-4000-a000-000000000005', label: 'Line of Business',         type: 'text',   placeholder: 'e.g. Retail Trade' },
     { id: 'b1r00001-0000-4000-a000-000000000015', label: 'Telephone Number',         type: 'text',   placeholder: 'e.g. 033-XXX-XXXX' },
     { id: 'b1r00001-0000-4000-a000-000000000016', label: 'Email Address',            type: 'text',   placeholder: 'e.g. info@company.com' },
+    // [7] Registered Name (non-individual)
     { id: 'b1r00001-0000-4000-a000-000000000009', label: 'Company / Registered Name', type: 'text',  placeholder: 'ABC Corporation' },
+    // [8-10] Registered Name (individual)
     { id: 'b1r00001-0000-4000-a000-000000000010', label: 'Last Name',                type: 'text',   placeholder: 'Dela Cruz' },
     { id: 'b1r00001-0000-4000-a000-000000000011', label: 'First Name',               type: 'text',   placeholder: 'Juan' },
     { id: 'b1r00001-0000-4000-a000-000000000012', label: 'Middle Name',              type: 'text',   placeholder: 'Santos' },
+    // [11-16] Address
     { id: 'b1r00001-0000-4000-a000-000000000017', label: 'Substreet',                type: 'text',   placeholder: 'Unit / Floor / Room' },
     { id: 'b1r00001-0000-4000-a000-000000000018', label: 'Street',                   type: 'text',   placeholder: 'e.g. Iznart St.' },
     { id: 'b1r00001-0000-4000-a000-000000000019', label: 'Barangay',                 type: 'text',   placeholder: 'e.g. Brgy. Rizal' },
     { id: 'b1r00001-0000-4000-a000-000000000020', label: 'District / Municipality',  type: 'text',   placeholder: 'e.g. Iloilo City' },
     { id: 'b1r00001-0000-4000-a000-000000000021', label: 'City / Province',          type: 'text',   placeholder: 'e.g. Iloilo' },
     { id: 'b1r00001-0000-4000-a000-000000000003', label: 'Zip Code',                 type: 'text',   placeholder: 'e.g. 5000' },
+    // [17-18] Authorized Rep
     { id: 'b1r00001-0000-4000-a000-000000000014', label: 'Authorized Rep Name',      type: 'text',   placeholder: 'Full name of signatory' },
     { id: 'b1r00001-0000-4000-a000-000000000022', label: 'Authorized Rep Title',     type: 'text',   placeholder: 'e.g. President / Treasurer' },
   ];
@@ -173,12 +185,14 @@
 
       try {
         birGuids = await ensureBIRFields(business);
+
         var model = await apiRequest('GET', '/api4/business-details?business=' + encodeURIComponent(business));
         if (statusEl) statusEl.textContent = '';
         if (!model) return;
         currentModel = model;
 
-        var cf = parseBIRBlob(model.customFields || {}, birGuids && birGuids.biz);
+        // BIR data lives in customFields2.strings keyed by the real Manager GUID
+        var cf = parseBIRBlob((model.customFields2 && model.customFields2.strings) || {}, birGuids && birGuids.biz);
 
         BUSINESS_FIELDS.forEach(function(f) {
           var el = container.querySelector('[data-cf-id="' + f.id + '"]');
@@ -257,7 +271,8 @@
         '<div>' + left + '</div>' +
         '<div>' + right + '</div>' +
         '</div>' +
-        addr + rep +
+        addr +
+        rep +
         '<div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:12px;">' +
         '<span id="cf-biz-status" style="font-size:11px;color:#6b7280;"></span>' +
         '<button type="button" id="cf-biz-reload" class="btn btn-secondary" style="font-size:12px;">Reload</button>' +
@@ -300,14 +315,14 @@
       try {
         if (!birGuids) birGuids = await ensureBIRFields(business);
         if (!birGuids || !birGuids.biz) throw new Error('BIR custom field not ready');
-        var managerCF = buildBIRCustomFields((currentModel || {}).customFields || {}, birGuids.biz, birBlob);
+        var managerCF2 = buildBIRCustomFields(currentModel || {}, birGuids.biz, birBlob);
         var bizValue = {
-          name:         (currentModel || {}).name    || null,
-          address:      (currentModel || {}).address || null,
-          customFields: managerCF,
+          name:          (currentModel || {}).name    || null,
+          address:       (currentModel || {}).address || null,
+          customFields2: managerCF2,
         };
         await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
-        currentModel = Object.assign({}, currentModel || {}, { customFields: managerCF });
+        currentModel = Object.assign({}, currentModel || {}, { customFields2: managerCF2 });
         managerOk = true;
       } catch(err) {
         console.warn('business-details PUT failed:', err.message);
@@ -316,8 +331,8 @@
       btn.disabled = false;
       btn.textContent = 'Save Business Info';
       if (status) {
-        status.textContent = managerOk ? 'Saved to Manager' : 'Save failed — check console';
-        status.style.color = managerOk ? '#27ae60' : '#c0392b';
+        status.textContent = managerOk ? 'Saved to Manager' : 'Saved locally (Manager write failed)';
+        status.style.color = managerOk ? '#27ae60' : '#f59e0b';
         setTimeout(function() { if (status) status.textContent = ''; }, 3000);
       }
     }
@@ -336,7 +351,7 @@
     return Object.assign(result, overrides || {});
   }
 
-  function buildPartyValue(v, newCustomFields) {
+  function buildPartyValue(v, newCustomFields2) {
     return {
       name:            v.name            !== undefined ? v.name            : null,
       code:            v.code            !== undefined ? v.code            : null,
@@ -352,8 +367,8 @@
       hasDefaultHourlyRate:  v.hasDefaultHourlyRate  || false,
       defaultHourlyRate:     v.defaultHourlyRate     !== undefined ? v.defaultHourlyRate  : 0,
       inactive:              v.inactive              || false,
-      customFields:          newCustomFields,
-      customFields2:         v.customFields2         !== undefined ? v.customFields2 : null,
+      customFields:          v.customFields          !== undefined ? v.customFields : null,
+      customFields2:         newCustomFields2,
       hasDefaultBillingAddress:  v.hasDefaultBillingAddress  || false,
       defaultBillingAddress:     v.defaultBillingAddress     !== undefined ? v.defaultBillingAddress  : null,
       hasDefaultDeliveryAddress: v.hasDefaultDeliveryAddress || false,
@@ -386,7 +401,8 @@
         container.innerHTML =
           '<div style="padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;">' +
           '⚠ Could not load ' + partyType + 's: ' + esc(err.message) +
-          ' <button id="cf-' + partyType + '-retry" style="margin-left:8px;font-size:11px;padding:2px 10px;cursor:pointer;">Retry</button></div>';
+          ' <button onclick="CF.mount' + (partyType === 'customer' ? 'Party' : 'Party') + '" style="margin-left:8px;font-size:11px;padding:2px 10px;cursor:pointer;" id="cf-' + partyType + '-retry">Retry</button>' +
+          '</div>';
         var retryBtn = container.querySelector('#cf-' + partyType + '-retry');
         if (retryBtn) retryBtn.addEventListener('click', function() { refresh(); });
         return;
@@ -401,7 +417,7 @@
       }
       var dis = 'background:#f1f5f9;color:#94a3b8;';
       var rows = cache.map(function(rec, idx) {
-        var cf = parseBIRBlob(rec.value.customFields || {}, birGuids && birGuids.party);
+        var cf = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party);
         var pType  = cf[PARTY_FIELDS[0].id] || 'Non-Individual';
         var isInd  = pType === 'Individual';
         var tin    = cf[PARTY_FIELDS[1].id] || '';
@@ -476,13 +492,14 @@
         { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
         { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
       ];
-      var existingBlob = parseBIRBlob(rec.value.customFields || {}, birGuids && birGuids.party);
-      var newBlob   = patchCF(existingBlob, updates);
-      var managerCF = buildBIRCustomFields(rec.value.customFields || {}, birGuids && birGuids.party, newBlob);
-      var putValue  = buildPartyValue(rec.value, managerCF);
+      // Patch the BIR blob, then wrap in Manager customFields2
+      var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party);
+      var newBlob  = patchCF(existingBlob, updates);
+      var managerCF2 = buildBIRCustomFields(rec.value, birGuids && birGuids.party, newBlob);
+      var putValue = buildPartyValue(rec.value, managerCF2);
       try {
         await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
-        rec.value = Object.assign({}, rec.value, { customFields: managerCF });
+        rec.value = Object.assign({}, rec.value, { customFields2: managerCF2 });
         flash(btn, true);
       } catch(err) {
         console.error(err);
@@ -516,12 +533,12 @@
             { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
             { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
           ];
-          var existingBlob = parseBIRBlob(rec.value.customFields || {}, birGuids && birGuids.party);
+          var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party);
           var newBlob   = patchCF(existingBlob, updates);
-          var managerCF = buildBIRCustomFields(rec.value.customFields || {}, birGuids && birGuids.party, newBlob);
-          var putValue  = buildPartyValue(rec.value, managerCF);
+          var managerCF2 = buildBIRCustomFields(rec.value, birGuids && birGuids.party, newBlob);
+          var putValue  = buildPartyValue(rec.value, managerCF2);
           await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
-          rec.value = Object.assign({}, rec.value, { customFields: managerCF });
+          rec.value = Object.assign({}, rec.value, { customFields2: managerCF2 });
           ok++;
         } catch(e) { fail++; }
       }
@@ -588,7 +605,7 @@
       if (!key) { host.innerHTML = ''; return; }
       var emp = cache.find(function(e) { return e.key === key; });
       if (!emp) return;
-      var empBlob = parseBIRBlob(emp.value.customFields || {}, birGuids && birGuids.emp);
+      var empBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp);
       var groups = [
         { heading: 'BIR Identity', fields: EMPLOYEE_FIELDS.slice(0, 4) },
         { heading: 'Employment Details', fields: EMPLOYEE_FIELDS.slice(4, 6) },
@@ -614,10 +631,10 @@
       if (!business) return;
       var btn = document.getElementById('cf-emp-save-btn');
       var updates = collectValues(e.currentTarget, EMPLOYEE_FIELDS);
-      var existingBlob = parseBIRBlob(emp.value.customFields || {}, birGuids && birGuids.emp);
+      var existingBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp);
       var newBlob   = patchCF(existingBlob, updates);
-      var managerCF = buildBIRCustomFields(emp.value.customFields || {}, birGuids && birGuids.emp, newBlob);
-      var updated   = buildSafeValue(emp.value, { customFields: managerCF });
+      var managerCF2 = buildBIRCustomFields(emp.value, birGuids && birGuids.emp, newBlob);
+      var updated   = buildSafeValue(emp.value, { customFields2: managerCF2 });
       try {
         await apiRequest('PUT', '/api4/employee', { business: business, key: emp.key, value: updated });
         emp.value = updated;
