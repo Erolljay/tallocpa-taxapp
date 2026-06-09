@@ -135,7 +135,7 @@ async function ensureBIRFields(biz) {
   }
 
   const findGuid = name => {
-    const it = items.find(i => ((i.item || {}).Name || '') === name);
+    const it = items.find(i => ((i.item || {}).name || '') === name);
     return it ? it.key : null;
   };
 
@@ -146,22 +146,22 @@ async function ensureBIRFields(biz) {
   };
 
   const defs = [
-    { slot: 'biz',   name: BIR_CF_NAMES.biz,   placement: ['Business Details'] },
-    { slot: 'party', name: BIR_CF_NAMES.party,  placement: ['Customer', 'Supplier'] },
-    { slot: 'emp',   name: BIR_CF_NAMES.emp,    placement: ['Employee'] },
+    { slot: 'biz',   name: BIR_CF_NAMES.biz   },
+    { slot: 'party', name: BIR_CF_NAMES.party  },
+    { slot: 'emp',   name: BIR_CF_NAMES.emp    },
   ];
 
   for (const def of defs) {
     if (guids[def.slot]) continue;
     try {
-      const created = await apiRequest('POST', `/api4/text-custom-field?q=${q}`, {
-        value: { Name: def.name, Placement: def.placement, LockedForManualEditing: true },
+      const created = await apiRequest('POST', '/api4/text-custom-field', {
+        value: { name: def.name, lockedForManualEditing: true },
       });
       if (created && created.key) {
         guids[def.slot] = created.key;
       } else {
         const re = await apiRequest('GET', `/api4/text-custom-field-batch?q=${q}`);
-        const found = ((re && re.items) || []).find(i => ((i.item || {}).Name || '') === def.name);
+        const found = ((re && re.items) || []).find(i => ((i.item || {}).name || '') === def.name);
         if (found) guids[def.slot] = found.key;
       }
     } catch(e) {
