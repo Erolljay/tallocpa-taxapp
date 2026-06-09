@@ -118,7 +118,7 @@ const _birGuidCache = {};
 async function ensureBIRFields(biz) {
   if (_birGuidCache[biz]) return _birGuidCache[biz];
 
-  const q = btoa(biz);
+const q = encodeURIComponent(btoa(biz));
 
   let items = [];
   try {
