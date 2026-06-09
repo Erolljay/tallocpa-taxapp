@@ -72,9 +72,6 @@ async function loadBusinesses(selectId, onchange) {
 }
 
 // ── REPORT CONTEXT — for pages opened via Manager Custom Button ──
-// Loads all businesses and auto-selects if single; otherwise renders
-// a compact dropdown into containerEl for the user to pick.
-// Returns the selected business name once ready.
 async function getReportBusiness(containerEl) {
   const res = await apiRequest('GET', '/api4/businesses');
   const businesses = res?.businesses || [];
@@ -83,7 +80,6 @@ async function getReportBusiness(containerEl) {
     App.currentBusiness = businesses[0].name;
     return businesses[0].name;
   }
-  // Multiple businesses — render a small selector
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;font-size:12px;';
@@ -103,7 +99,6 @@ async function getReportBusiness(containerEl) {
 }
 
 // ── MANAGER MAPPING GUIDS ────────────────────────────────────
-// Stored as JSON strings inside business-details.customFields
 const MAPPING_GUIDS = {
   vatMapping: 'b1r00099-0000-4000-a000-000000000001',
   ewtMapping: 'b1r00099-0000-4000-a000-000000000002',
@@ -111,18 +106,88 @@ const MAPPING_GUIDS = {
   ptMapping:  'b1r00099-0000-4000-a000-000000000004',
 };
 
-// Load business-details from Manager (includes BIR custom fields + mappings)
+// ── BIR CUSTOM FIELD DEFINITIONS ─────────────────────────────
+const BIR_CF_NAMES = {
+  biz:   'BIR Business Data',
+  party: 'BIR Party Data',
+  emp:   'BIR Employee Data',
+};
+
+const _birGuidCache = {};
+
+async function ensureBIRFields(biz) {
+  if (_birGuidCache[biz]) return _birGuidCache[biz];
+
+  let items = [];
+  try {
+    const res = await apiRequest('GET', `/api4/text-custom-field-form-batch?business=${encodeURIComponent(biz)}&Skip=0&PageSize=200`);
+    items = (res && res.items) ? res.items : [];
+  } catch(e) {
+    console.warn('ensureBIRFields: batch fetch failed:', e.message);
+  }
+
+  const findGuid = name => {
+    const it = items.find(i => ((i.item || {}).Name || '') === name);
+    return it ? it.key : null;
+  };
+
+  const guids = {
+    biz:   findGuid(BIR_CF_NAMES.biz),
+    party: findGuid(BIR_CF_NAMES.party),
+    emp:   findGuid(BIR_CF_NAMES.emp),
+  };
+
+  const defs = [
+    { slot: 'biz',   name: BIR_CF_NAMES.biz,   placement: ['Business Details'] },
+    { slot: 'party', name: BIR_CF_NAMES.party,  placement: ['Customer', 'Supplier'] },
+    { slot: 'emp',   name: BIR_CF_NAMES.emp,    placement: ['Employee'] },
+  ];
+
+  for (const def of defs) {
+    if (guids[def.slot]) continue;
+    try {
+      const created = await apiRequest('POST', `/api4/text-custom-field-form?business=${encodeURIComponent(biz)}`, {
+        value: { Name: def.name, Placement: def.placement, LockedForManualEditing: true },
+      });
+      if (created && created.key) {
+        guids[def.slot] = created.key;
+      } else {
+        const re = await apiRequest('GET', `/api4/text-custom-field-form-batch?business=${encodeURIComponent(biz)}&Skip=0&PageSize=200`);
+        const found = ((re && re.items) || []).find(i => ((i.item || {}).Name || '') === def.name);
+        if (found) guids[def.slot] = found.key;
+      }
+    } catch(e) {
+      console.warn('ensureBIRFields: could not create', def.name, ':', e.message);
+    }
+  }
+
+  _birGuidCache[biz] = guids;
+  return guids;
+}
+
+function parseBIRBlob(managerCF, guid) {
+  if (!guid || !managerCF) return {};
+  const raw = managerCF[guid];
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function buildBIRCustomFields(existingManagerCF, guid, birData) {
+  const cf = Object.assign({}, existingManagerCF || {});
+  if (guid) cf[guid] = JSON.stringify(birData);
+  return cf;
+}
+
+// ── BUSINESS DETAILS ─────────────────────────────────────────
 async function loadBizDetails(biz) {
   const model = await apiRequest('GET', `/api4/business-details?business=${encodeURIComponent(biz)}`);
   return model || {};
 }
 
-// Save updated model back to Manager
 async function saveBizDetails(biz, model) {
-  await apiRequest('PUT', '/api4/business-details', { value: model });
+  await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(biz)}`, { value: model });
 }
 
-// Read a specific mapping from a business-details model
 function readMapping(model, type) {
   const guid = MAPPING_GUIDS[type];
   if (!guid) return {};
@@ -130,7 +195,6 @@ function readMapping(model, type) {
   try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
 }
 
-// Write a mapping into a business-details model (returns updated model)
 function writeMapping(model, type, data) {
   const guid = MAPPING_GUIDS[type];
   if (!guid) return model;
@@ -142,10 +206,7 @@ function writeMapping(model, type, data) {
 
 function tryParse(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
 
-// ── BIR FIELD GUIDs (used by custom-fields.js AND reports) ───
-// All BIR data lives in Manager. Reports call loadSetup / loadPartyBIR
-// to fetch directly — no localStorage.
-
+// ── BIR FIELD GUIDs ──────────────────────────────────────────
 const BIZ_GUIDS = {
   tin:           'b1r00001-0000-4000-a000-000000000001',
   rdoCode:       'b1r00001-0000-4000-a000-000000000002',
@@ -180,12 +241,12 @@ const PARTY_GUIDS = {
   address2:    'b1r00002-0000-4000-a000-000000000009',
 };
 
-// Load business BIR setup from Manager and return a plain object.
-// Used by all report pages instead of localStorage.
+// ── LOAD SETUP ───────────────────────────────────────────────
 async function loadSetup(biz) {
   try {
-    const model = await loadBizDetails(biz);
-    const cf    = model.customFields || model.CustomFields || {};
+    const [model, guids] = await Promise.all([loadBizDetails(biz), ensureBIRFields(biz)]);
+    const rawCF = model.customFields || model.CustomFields || {};
+    const cf    = parseBIRBlob(rawCF, guids && guids.biz);
     const cls   = cf[BIZ_GUIDS.classification] || '';
     const isInd = cls === 'Individual';
     const ln    = cf[BIZ_GUIDS.lastName]  || '';
@@ -212,7 +273,6 @@ async function loadSetup(biz) {
       zipCode:  cf[BIZ_GUIDS.zipCode]       || '',
       authRep:  cf[BIZ_GUIDS.authRep]       || '',
       authRepTitle: cf[BIZ_GUIDS.authRepTitle] || '',
-      // Tax mappings stored as JSON blobs keyed by MAPPING_GUIDS
       vatMapping: readMapping(model, 'vatMapping'),
       ewtMapping: readMapping(model, 'ewtMapping'),
     };
@@ -222,18 +282,18 @@ async function loadSetup(biz) {
   }
 }
 
-// Load all customers OR suppliers for a business with their BIR custom fields.
-// Returns { [managerKey]: { name, tin, type, companyName, ... } }
+// ── LOAD PARTY BIR ───────────────────────────────────────────
 async function loadPartyBIR(biz, partyType) {
   const batchPath = partyType === 'customer'
     ? '/api4/customer-batch'
     : '/api4/supplier-batch';
   try {
-    const all = await fetchAllBatch(batchPath, biz);
+    const [all, guids] = await Promise.all([fetchAllBatch(batchPath, biz), ensureBIRFields(biz)]);
     const result = {};
     all.forEach(it => {
-      const rec = it.item || {};
-      const cf  = rec.customFields || rec.CustomFields || {};
+      const rec   = it.item || {};
+      const rawCF = rec.customFields || rec.CustomFields || {};
+      const cf    = parseBIRBlob(rawCF, guids && guids.party);
       result[it.key] = {
         name:        rec.name || rec.Name || it.key,
         type:        cf[PARTY_GUIDS.type]        || 'Non-Individual',
