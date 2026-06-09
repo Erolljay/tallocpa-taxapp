@@ -1,16 +1,8 @@
 // Custom-field setup for the PH (Philippines BIR) extension.
-// Field GUIDs are stable identifiers -- DO NOT CHANGE after first use.
-// Uses postMessage bridge (apiRequest from shared.js) -- NOT direct fetch.
-//
-// Business section mirrors AU extension:
-//   - Data stored IN Manager's business record as custom fields
-//   - Form renders immediately (no spinner), loads from Manager in background
-//   - On save: writes directly to Manager business record (no localStorage)
 
 (function () {
 
   var BUSINESS_FIELDS = [
-    // [0] Identity
     { id: 'b1r00001-0000-4000-a000-000000000001', label: 'TIN',                      type: 'text',   placeholder: '000-000-000-000' },
     { id: 'b1r00001-0000-4000-a000-000000000002', label: 'RDO Code',                 type: 'text',   placeholder: 'e.g. 083' },
     { id: 'b1r00001-0000-4000-a000-000000000013', label: 'Branch Code',              type: 'text',   placeholder: '000 (Head Office = 000)' },
@@ -18,20 +10,16 @@
     { id: 'b1r00001-0000-4000-a000-000000000005', label: 'Line of Business',         type: 'text',   placeholder: 'e.g. Retail Trade' },
     { id: 'b1r00001-0000-4000-a000-000000000015', label: 'Telephone Number',         type: 'text',   placeholder: 'e.g. 033-XXX-XXXX' },
     { id: 'b1r00001-0000-4000-a000-000000000016', label: 'Email Address',            type: 'text',   placeholder: 'e.g. info@company.com' },
-    // [7] Registered Name (non-individual)
     { id: 'b1r00001-0000-4000-a000-000000000009', label: 'Company / Registered Name', type: 'text',  placeholder: 'ABC Corporation' },
-    // [8-10] Registered Name (individual)
     { id: 'b1r00001-0000-4000-a000-000000000010', label: 'Last Name',                type: 'text',   placeholder: 'Dela Cruz' },
     { id: 'b1r00001-0000-4000-a000-000000000011', label: 'First Name',               type: 'text',   placeholder: 'Juan' },
     { id: 'b1r00001-0000-4000-a000-000000000012', label: 'Middle Name',              type: 'text',   placeholder: 'Santos' },
-    // [11-16] Address
     { id: 'b1r00001-0000-4000-a000-000000000017', label: 'Substreet',                type: 'text',   placeholder: 'Unit / Floor / Room' },
     { id: 'b1r00001-0000-4000-a000-000000000018', label: 'Street',                   type: 'text',   placeholder: 'e.g. Iznart St.' },
     { id: 'b1r00001-0000-4000-a000-000000000019', label: 'Barangay',                 type: 'text',   placeholder: 'e.g. Brgy. Rizal' },
     { id: 'b1r00001-0000-4000-a000-000000000020', label: 'District / Municipality',  type: 'text',   placeholder: 'e.g. Iloilo City' },
     { id: 'b1r00001-0000-4000-a000-000000000021', label: 'City / Province',          type: 'text',   placeholder: 'e.g. Iloilo' },
     { id: 'b1r00001-0000-4000-a000-000000000003', label: 'Zip Code',                 type: 'text',   placeholder: 'e.g. 5000' },
-    // [17-18] Authorized Rep
     { id: 'b1r00001-0000-4000-a000-000000000014', label: 'Authorized Rep Name',      type: 'text',   placeholder: 'Full name of signatory' },
     { id: 'b1r00001-0000-4000-a000-000000000022', label: 'Authorized Rep Title',     type: 'text',   placeholder: 'e.g. President / Treasurer' },
   ];
@@ -168,53 +156,48 @@
   }
 
   // ---- BUSINESS SECTION ----
-  // Mirrors AU extension: data stored IN Manager business record.
-  // Form renders immediately with empty fields (no spinner).
-  // Loads from Manager in background -- populates form when ready.
-  // Switch business -> form clears -> loads new business data from Manager.
-  // On save: writes to Manager first, caches to localStorage for reports.
 
   function mountBusinessSection(container) {
     var currentModel = {};
+    var birGuids = null;
 
-    function refresh() {
+    async function refresh() {
       var business = biz();
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
 
-      // Render form immediately with empty fields -- no blocking
       currentModel = {};
       renderBizForm({});
 
-      // Load from Manager in background -- populate when ready
       var statusEl = container.querySelector('#cf-biz-status');
       if (statusEl) { statusEl.textContent = 'Loading...'; statusEl.style.color = '#6b7280'; }
-      apiRequest('GET', '/api4/business-details?business=' + encodeURIComponent(business))
-        .then(function(model) {
-          if (statusEl) statusEl.textContent = '';
-          if (!model) return;
-          currentModel = model;
-          var cf = model.customFields || {};
-          // Update form fields with Manager data
-          BUSINESS_FIELDS.forEach(function(f) {
-            var el = container.querySelector('[data-cf-id="' + f.id + '"]');
-            if (!el) return;
-            el.value = cf[f.id] || '';
-          });
-          // Update classification toggle
-          var cls = cf['b1r00001-0000-4000-a000-000000000004'] || '';
-          var ind = cls === 'Individual';
-          var co = container.querySelector('#cf-grp-company');
-          var pi = container.querySelector('#cf-grp-ind');
-          if (co) co.style.display = ind ? 'none' : '';
-          if (pi) pi.style.display = ind ? '' : 'none';
-        })
-        .catch(function(err) {
-          if (statusEl) {
-            statusEl.textContent = 'Could not load from Manager — fill in and save manually.';
-            statusEl.style.color = '#f59e0b';
-          }
-          console.warn('business-details GET failed:', err && err.message);
+
+      try {
+        birGuids = await ensureBIRFields(business);
+        var model = await apiRequest('GET', '/api4/business-details?business=' + encodeURIComponent(business));
+        if (statusEl) statusEl.textContent = '';
+        if (!model) return;
+        currentModel = model;
+
+        var cf = parseBIRBlob(model.customFields || {}, birGuids && birGuids.biz);
+
+        BUSINESS_FIELDS.forEach(function(f) {
+          var el = container.querySelector('[data-cf-id="' + f.id + '"]');
+          if (!el) return;
+          el.value = cf[f.id] || '';
         });
+        var cls = cf['b1r00001-0000-4000-a000-000000000004'] || '';
+        var ind = cls === 'Individual';
+        var co = container.querySelector('#cf-grp-company');
+        var pi = container.querySelector('#cf-grp-ind');
+        if (co) co.style.display = ind ? 'none' : '';
+        if (pi) pi.style.display = ind ? '' : 'none';
+      } catch(err) {
+        if (statusEl) {
+          statusEl.textContent = 'Could not load from Manager — fill in and save manually.';
+          statusEl.style.color = '#f59e0b';
+        }
+        console.warn('business-details GET failed:', err && err.message);
+      }
     }
 
     function renderBizForm(cf) {
@@ -225,7 +208,6 @@
 
       var secStyle = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid #f1f5f9;';
 
-      // Section 1: 2-column — Identity | Registered Name
       var left =
         '<p style="' + secStyle + '">Taxpayer Identity</p>' +
         renderField(BF('b1r00001-0000-4000-a000-000000000001'), val('b1r00001-0000-4000-a000-000000000001'), 'biz') +
@@ -247,7 +229,6 @@
           renderField(BF('b1r00001-0000-4000-a000-000000000012'), val('b1r00001-0000-4000-a000-000000000012'), 'biz') +
         '</div>';
 
-      // Section 2: Address (3-column grid)
       var addr =
         '<p style="' + secStyle + 'margin-top:16px;">Address</p>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;">' +
@@ -259,7 +240,6 @@
           renderField(BF('b1r00001-0000-4000-a000-000000000003'), val('b1r00001-0000-4000-a000-000000000003'), 'biz') +
         '</div>';
 
-      // Section 3: Authorized Rep
       var rep =
         '<p style="' + secStyle + 'margin-top:16px;">Authorized Representative</p>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">' +
@@ -277,8 +257,7 @@
         '<div>' + left + '</div>' +
         '<div>' + right + '</div>' +
         '</div>' +
-        addr +
-        rep +
+        addr + rep +
         '<div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:12px;">' +
         '<span id="cf-biz-status" style="font-size:11px;color:#6b7280;"></span>' +
         '<button type="button" id="cf-biz-reload" class="btn btn-secondary" style="font-size:12px;">Reload</button>' +
@@ -311,25 +290,24 @@
       btn.textContent = 'Saving...';
       if (status) status.textContent = '';
 
-      // Collect field values
-      var newCF = {};
+      var birBlob = {};
       BUSINESS_FIELDS.forEach(function(f) {
         var el = container.querySelector('[data-cf-id="' + f.id + '"]');
-        if (el) newCF[f.id] = el.value;
+        if (el) birBlob[f.id] = el.value || '';
       });
 
-      // Write to Manager — only editable fields per /openapi/put-business-details.json
-      // Exclude: timestamp, key, id (timestamp causes int64 precision errors in JS)
       var managerOk = false;
       try {
-        var mergedCF = Object.assign({}, (currentModel || {}).customFields || {}, newCF);
+        if (!birGuids) birGuids = await ensureBIRFields(business);
+        if (!birGuids || !birGuids.biz) throw new Error('BIR custom field not ready');
+        var managerCF = buildBIRCustomFields((currentModel || {}).customFields || {}, birGuids.biz, birBlob);
         var bizValue = {
           name:         (currentModel || {}).name    || null,
           address:      (currentModel || {}).address || null,
-          customFields: mergedCF,
+          customFields: managerCF,
         };
-        await apiRequest('PUT', '/api4/business-details', { value: bizValue });
-        currentModel = Object.assign({}, currentModel || {}, { customFields: mergedCF });
+        await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
+        currentModel = Object.assign({}, currentModel || {}, { customFields: managerCF });
         managerOk = true;
       } catch(err) {
         console.warn('business-details PUT failed:', err.message);
@@ -338,8 +316,8 @@
       btn.disabled = false;
       btn.textContent = 'Save Business Info';
       if (status) {
-        status.textContent = managerOk ? 'Saved to Manager' : 'Saved locally (Manager write failed)';
-        status.style.color = managerOk ? '#27ae60' : '#f59e0b';
+        status.textContent = managerOk ? 'Saved to Manager' : 'Save failed — check console';
+        status.style.color = managerOk ? '#27ae60' : '#c0392b';
         setTimeout(function() { if (status) status.textContent = ''; }, 3000);
       }
     }
@@ -349,8 +327,6 @@
 
   // ---- CUSTOMERS / SUPPLIERS SECTION ----
 
-  // Generic safe value builder — copies all fields except timestamp/id/key, then applies overrides.
-  // Use for entities (employee, payslip items) where we don't have a full field whitelist.
   function buildSafeValue(v, overrides) {
     var result = {};
     Object.keys(v || {}).forEach(function(k) {
@@ -360,8 +336,6 @@
     return Object.assign(result, overrides || {});
   }
 
-  // Builds a clean PUT value per /openapi/put-customer.json (same schema for supplier).
-  // Excludes: timestamp, id, key, and all computed is*/has* flags that cause 400.
   function buildPartyValue(v, newCustomFields) {
     return {
       name:            v.name            !== undefined ? v.name            : null,
@@ -391,12 +365,14 @@
     var batchPath = partyType === 'customer' ? '/api4/customer-batch' : '/api4/supplier-batch';
     var putPath   = partyType === 'customer' ? '/api4/customer'       : '/api4/supplier';
     var cache = [];
+    var birGuids = null;
 
     async function refresh() {
       var business = biz();
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
       container.innerHTML = spinner('Loading ' + partyType + 's from Manager…');
       try {
+        birGuids = await ensureBIRFields(business);
         var res = await apiRequest('GET', batchPath + '?business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
         var items = (res && res.items) ? res.items : [];
         cache = items.map(function(it) {
@@ -410,8 +386,7 @@
         container.innerHTML =
           '<div style="padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;">' +
           '⚠ Could not load ' + partyType + 's: ' + esc(err.message) +
-          ' <button onclick="CF.mount' + (partyType === 'customer' ? 'Party' : 'Party') + '" style="margin-left:8px;font-size:11px;padding:2px 10px;cursor:pointer;" id="cf-' + partyType + '-retry">Retry</button>' +
-          '</div>';
+          ' <button id="cf-' + partyType + '-retry" style="margin-left:8px;font-size:11px;padding:2px 10px;cursor:pointer;">Retry</button></div>';
         var retryBtn = container.querySelector('#cf-' + partyType + '-retry');
         if (retryBtn) retryBtn.addEventListener('click', function() { refresh(); });
         return;
@@ -426,7 +401,7 @@
       }
       var dis = 'background:#f1f5f9;color:#94a3b8;';
       var rows = cache.map(function(rec, idx) {
-        var cf = rec.value.customFields || {};
+        var cf = parseBIRBlob(rec.value.customFields || {}, birGuids && birGuids.party);
         var pType  = cf[PARTY_FIELDS[0].id] || 'Non-Individual';
         var isInd  = pType === 'Individual';
         var tin    = cf[PARTY_FIELDS[1].id] || '';
@@ -501,11 +476,13 @@
         { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
         { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
       ];
-      var newCF    = patchCF(rec.value.customFields || {}, updates);
-      var putValue = buildPartyValue(rec.value, newCF);
+      var existingBlob = parseBIRBlob(rec.value.customFields || {}, birGuids && birGuids.party);
+      var newBlob   = patchCF(existingBlob, updates);
+      var managerCF = buildBIRCustomFields(rec.value.customFields || {}, birGuids && birGuids.party, newBlob);
+      var putValue  = buildPartyValue(rec.value, managerCF);
       try {
-        await apiRequest('PUT', putPath, { key: key, value: putValue });
-        rec.value = Object.assign({}, rec.value, { customFields: newCF });
+        await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
+        rec.value = Object.assign({}, rec.value, { customFields: managerCF });
         flash(btn, true);
       } catch(err) {
         console.error(err);
@@ -539,10 +516,12 @@
             { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
             { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
           ];
-          var newCF    = patchCF(rec.value.customFields || {}, updates);
-          var putValue = buildPartyValue(rec.value, newCF);
-          await apiRequest('PUT', putPath, { key: key, value: putValue });
-          rec.value = Object.assign({}, rec.value, { customFields: newCF });
+          var existingBlob = parseBIRBlob(rec.value.customFields || {}, birGuids && birGuids.party);
+          var newBlob   = patchCF(existingBlob, updates);
+          var managerCF = buildBIRCustomFields(rec.value.customFields || {}, birGuids && birGuids.party, newBlob);
+          var putValue  = buildPartyValue(rec.value, managerCF);
+          await apiRequest('PUT', putPath, { business: business, key: key, value: putValue });
+          rec.value = Object.assign({}, rec.value, { customFields: managerCF });
           ok++;
         } catch(e) { fail++; }
       }
@@ -561,11 +540,13 @@
 
   function mountEmployeeSection(container) {
     var cache = [];
+    var birGuids = null;
 
     async function refresh() {
       var business = biz();
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
       container.innerHTML = spinner('Loading employees from Manager…');
+      birGuids = await ensureBIRFields(business);
       try {
         var res = await apiRequest('GET', '/api4/employee-batch?business=' + encodeURIComponent(business) + '&Skip=0&PageSize=500');
         var items = (res && res.items) ? res.items : [];
@@ -607,6 +588,7 @@
       if (!key) { host.innerHTML = ''; return; }
       var emp = cache.find(function(e) { return e.key === key; });
       if (!emp) return;
+      var empBlob = parseBIRBlob(emp.value.customFields || {}, birGuids && birGuids.emp);
       var groups = [
         { heading: 'BIR Identity', fields: EMPLOYEE_FIELDS.slice(0, 4) },
         { heading: 'Employment Details', fields: EMPLOYEE_FIELDS.slice(4, 6) },
@@ -616,7 +598,7 @@
         return '<fieldset style="border:.5px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:12px;">' +
           '<legend style="font-size:11px;font-weight:500;color:#6b7280;padding:0 6px;">' + esc(g.heading) + '</legend>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-          g.fields.map(function(f) { return renderField(f, readCF(emp.value, f), 'emp-' + key); }).join('') +
+          g.fields.map(function(f) { return renderField(f, empBlob[f.id] || '', 'emp-' + key); }).join('') +
           '</div></fieldset>';
       }).join('');
       host.innerHTML = '<form id="cf-emp-save-form">' + groupsHtml +
@@ -632,9 +614,12 @@
       if (!business) return;
       var btn = document.getElementById('cf-emp-save-btn');
       var updates = collectValues(e.currentTarget, EMPLOYEE_FIELDS);
-      var updated = buildSafeValue(emp.value, { customFields: patchCF(emp.value.customFields, updates) });
+      var existingBlob = parseBIRBlob(emp.value.customFields || {}, birGuids && birGuids.emp);
+      var newBlob   = patchCF(existingBlob, updates);
+      var managerCF = buildBIRCustomFields(emp.value.customFields || {}, birGuids && birGuids.emp, newBlob);
+      var updated   = buildSafeValue(emp.value, { customFields: managerCF });
       try {
-        await apiRequest('PUT', '/api4/employee', { key: emp.key, value: updated });
+        await apiRequest('PUT', '/api4/employee', { business: business, key: emp.key, value: updated });
         emp.value = updated;
         flash(btn, true);
       } catch(err) {
@@ -717,7 +702,7 @@
       var newCat = row.querySelector('[data-role="cat"]').value || null;
       var updated = buildSafeValue(rec.value, { reportingCategory: newCat });
       try {
-        await apiRequest('PUT', '/api4/' + type.endpoint, { key: key, value: updated });
+        await apiRequest('PUT', '/api4/' + type.endpoint, { business: business, key: key, value: updated });
         rec.value = updated;
         flash(btn, true);
       } catch(err) {
