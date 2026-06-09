@@ -113,66 +113,26 @@ const BIR_CF_NAMES = {
   emp:   'BIR Employee Data',
 };
 
-const _birGuidCache = {};
+// Known Manager custom-field placement GUIDs (confirmed via API).
+const BIR_PLACEMENTS = {
+  biz:   [{ Key: '38cf4712-6e95-4ce1-b53a-bff03edad273', UniqueName: 'Business Details' }],
+  party: [
+    { Key: 'ec37c11e-2b67-49c6-8a58-6eccb7dd75ee', UniqueName: 'Customer' },
+    { Key: '6d2dc48d-2053-4e45-8330-285ebd431242', UniqueName: 'Supplier' },
+  ],
+  emp:   [{ Key: 'dadb7f95-a5dd-45c0-945d-6ad4ee28776e', UniqueName: 'Employee' }],
+};
 
-async function ensureBIRFields(biz) {
-  if (_birGuidCache[biz]) return _birGuidCache[biz];
-
-  // Manager's q param = base64([0xa2, 0x06, nameByteLength, ...nameUtf8Bytes])
-  const nameBytes = new TextEncoder().encode(biz);
-  const buf = new Uint8Array(3 + nameBytes.length);
-  buf[0] = 0xa2; buf[1] = 0x06; buf[2] = nameBytes.length;
-  buf.set(nameBytes, 3);
-  let _s = ''; buf.forEach(b => _s += String.fromCharCode(b));
-  const q = btoa(_s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-  let items = [];
-  try {
-    const res = await apiRequest('GET', `/api4/text-custom-field-batch?q=${q}`);
-    items = (res && res.items) ? res.items : [];
-  } catch(e) {
-    console.warn('ensureBIRFields: batch fetch failed:', e.message);
-  }
-
-  const findGuid = name => {
-    const it = items.find(i => ((i.item || {}).name || '') === name);
-    return it ? it.key : null;
+// Returns the hardcoded GUIDs — no API lookup needed.
+async function ensureBIRFields(_biz) {
+  return {
+    biz:      BIR_PLACEMENTS.biz[0].Key,
+    customer: BIR_PLACEMENTS.party.find(p => p.UniqueName === 'Customer').Key,
+    supplier: BIR_PLACEMENTS.party.find(p => p.UniqueName === 'Supplier').Key,
+    emp:      BIR_PLACEMENTS.emp[0].Key,
+    // legacy alias used by code that only needs one party GUID (defaults to Customer)
+    party:    BIR_PLACEMENTS.party.find(p => p.UniqueName === 'Customer').Key,
   };
-
-  const guids = {
-    biz:   findGuid(BIR_CF_NAMES.biz),
-    party: findGuid(BIR_CF_NAMES.party),
-    emp:   findGuid(BIR_CF_NAMES.emp),
-  };
-
-  const defs = [
-    { slot: 'biz',   name: BIR_CF_NAMES.biz   },
-    { slot: 'party', name: BIR_CF_NAMES.party  },
-    { slot: 'emp',   name: BIR_CF_NAMES.emp    },
-  ];
-
-  for (const def of defs) {
-    if (guids[def.slot]) continue;
-    try {
-      const created = await apiRequest('POST', '/api4/text-custom-field', {
-        value: { name: def.name, lockedForManualEditing: true },
-      });
-      // POST returns a UUID string directly
-      if (created) {
-        guids[def.slot] = typeof created === 'string' ? created : (created.key || null);
-      }
-      if (!guids[def.slot]) {
-        const re = await apiRequest('GET', `/api4/text-custom-field-batch?q=${q}`);
-        const found = ((re && re.items) || []).find(i => ((i.item || {}).name || '') === def.name);
-        if (found) guids[def.slot] = found.key;
-      }
-    } catch(e) {
-      console.warn('ensureBIRFields: could not create', def.name, ':', e.message);
-    }
-  }
-
-  _birGuidCache[biz] = guids;
-  return guids;
 }
 
 // Parse the BIR JSON blob from a Manager record's customFields2.strings using the real GUID.
@@ -306,11 +266,12 @@ async function loadPartyBIR(biz, partyType) {
     : '/api4/supplier-batch';
   try {
     const [all, guids] = await Promise.all([fetchAllBatch(batchPath, biz), ensureBIRFields(biz)]);
+    const partyGuid = partyType === 'customer' ? guids.customer : guids.supplier;
     const result = {};
     all.forEach(it => {
       const rec   = it.item || {};
       const rawCF = (rec.customFields2 && rec.customFields2.strings) || rec.customFields || {};
-      const cf    = parseBIRBlob(rawCF, guids && guids.party);
+      const cf    = parseBIRBlob(rawCF, partyGuid);
       result[it.key] = {
         name:        rec.name || rec.Name || it.key,
         type:        cf[PARTY_GUIDS.type]        || 'Non-Individual',
