@@ -118,9 +118,11 @@ const _birGuidCache = {};
 async function ensureBIRFields(biz) {
   if (_birGuidCache[biz]) return _birGuidCache[biz];
 
+  const q = btoa(biz);
+
   let items = [];
   try {
-    const res = await apiRequest('GET', `/api4/text-custom-field-form-batch?business=${encodeURIComponent(biz)}&Skip=0&PageSize=200`);
+    const res = await apiRequest('GET', `/api4/text-custom-field-batch?q=${q}`);
     items = (res && res.items) ? res.items : [];
   } catch(e) {
     console.warn('ensureBIRFields: batch fetch failed:', e.message);
@@ -146,13 +148,13 @@ async function ensureBIRFields(biz) {
   for (const def of defs) {
     if (guids[def.slot]) continue;
     try {
-      const created = await apiRequest('POST', `/api4/text-custom-field-form?business=${encodeURIComponent(biz)}`, {
+      const created = await apiRequest('POST', `/api4/text-custom-field?q=${q}`, {
         value: { Name: def.name, Placement: def.placement, LockedForManualEditing: true },
       });
       if (created && created.key) {
         guids[def.slot] = created.key;
       } else {
-        const re = await apiRequest('GET', `/api4/text-custom-field-form-batch?business=${encodeURIComponent(biz)}&Skip=0&PageSize=200`);
+        const re = await apiRequest('GET', `/api4/text-custom-field-batch?q=${q}`);
         const found = ((re && re.items) || []).find(i => ((i.item || {}).Name || '') === def.name);
         if (found) guids[def.slot] = found.key;
       }
