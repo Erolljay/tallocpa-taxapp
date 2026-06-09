@@ -192,7 +192,7 @@
         currentModel = model;
 
         // BIR data lives in customFields2.strings keyed by the real Manager GUID
-        var cf = parseBIRBlob((model.customFields2 && model.customFields2.strings) || {}, birGuids && birGuids.biz);
+        var cf = parseBIRBlob(model.customFields || {}, birGuids && birGuids.biz);
 
         BUSINESS_FIELDS.forEach(function(f) {
           var el = container.querySelector('[data-cf-id="' + f.id + '"]');
@@ -315,14 +315,15 @@
       try {
         if (!birGuids) birGuids = await ensureBIRFields(business);
         if (!birGuids || !birGuids.biz) throw new Error('BIR custom field not ready');
-        var managerCF2 = buildBIRCustomFields(currentModel || {}, birGuids.biz, birBlob);
+        var existingCF = Object.assign({}, (currentModel || {}).customFields || {});
+        existingCF[birGuids.biz] = JSON.stringify(birBlob);
         var bizValue = {
           name:          (currentModel || {}).name    || null,
           address:       (currentModel || {}).address || null,
-          customFields2: managerCF2,
+          customFields: existingCF,
         };
         await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
-        currentModel = Object.assign({}, currentModel || {}, { customFields2: managerCF2 });
+        currentModel = Object.assign({}, currentModel || {}, { customFields: existingCF });
         managerOk = true;
       } catch(err) {
         console.warn('business-details PUT failed:', err.message);
