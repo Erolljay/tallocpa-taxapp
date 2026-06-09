@@ -157,9 +157,10 @@ async function ensureBIRFields(biz) {
       const created = await apiRequest('POST', '/api4/text-custom-field', {
         value: { name: def.name, lockedForManualEditing: true },
       });
-      if (created && created.key) {
-        guids[def.slot] = created.key;
-      } else {
+      if (created) {
+        guids[def.slot] = typeof created === 'string' ? created : (created.key || null);
+      }
+      if (!guids[def.slot]) {
         const re = await apiRequest('GET', `/api4/text-custom-field-batch?q=${q}`);
         const found = ((re && re.items) || []).find(i => ((i.item || {}).name || '') === def.name);
         if (found) guids[def.slot] = found.key;
