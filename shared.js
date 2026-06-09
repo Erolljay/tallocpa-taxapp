@@ -262,7 +262,7 @@ const PARTY_GUIDS = {
 async function loadSetup(biz) {
   try {
     const [model, guids] = await Promise.all([loadBizDetails(biz), ensureBIRFields(biz)]);
-    const rawCF = (model.customFields2 && model.customFields2.strings) || model.customFields || {};
+    const rawCF = model.customFields || {};
     const cf    = parseBIRBlob(rawCF, guids && guids.biz);
     const cls   = cf[BIZ_GUIDS.classification] || '';
     const isInd = cls === 'Individual';
