@@ -118,7 +118,7 @@ const _birGuidCache = {};
 async function ensureBIRFields(biz) {
   if (_birGuidCache[biz]) return _birGuidCache[biz];
 
-  // Manager's q param = base64url([0xa2, 0x06, nameByteLength, ...nameUtf8Bytes])
+  // Manager's q param = base64([0xa2, 0x06, nameByteLength, ...nameUtf8Bytes])
   const nameBytes = new TextEncoder().encode(biz);
   const buf = new Uint8Array(3 + nameBytes.length);
   buf[0] = 0xa2; buf[1] = 0x06; buf[2] = nameBytes.length;
@@ -157,6 +157,7 @@ async function ensureBIRFields(biz) {
       const created = await apiRequest('POST', '/api4/text-custom-field', {
         value: { name: def.name, lockedForManualEditing: true },
       });
+      // POST returns a UUID string directly
       if (created) {
         guids[def.slot] = typeof created === 'string' ? created : (created.key || null);
       }
@@ -174,6 +175,7 @@ async function ensureBIRFields(biz) {
   return guids;
 }
 
+// Parse the BIR JSON blob from a Manager record's customFields2.strings using the real GUID.
 function parseBIRBlob(managerCF, guid) {
   if (!guid || !managerCF) return {};
   const raw = managerCF[guid];
@@ -181,22 +183,27 @@ function parseBIRBlob(managerCF, guid) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-function buildBIRCustomFields(existingManagerCF, guid, birData) {
-  const cf = Object.assign({}, existingManagerCF || {});
-  if (guid) cf[guid] = JSON.stringify(birData);
-  return cf;
+// Build Manager customFields2 object: preserves existing strings, replaces the BIR blob.
+// Returns { strings: {...} } to be set as record.customFields2
+function buildBIRCustomFields(existingRecord, guid, birData) {
+  const existing2 = (existingRecord && existingRecord.customFields2) || {};
+  const strings = Object.assign({}, existing2.strings || {});
+  if (guid) strings[guid] = JSON.stringify(birData);
+  return Object.assign({}, existing2, { strings });
 }
 
-// ── BUSINESS DETAILS ─────────────────────────────────────────
+// Load business-details from Manager
 async function loadBizDetails(biz) {
   const model = await apiRequest('GET', `/api4/business-details?business=${encodeURIComponent(biz)}`);
   return model || {};
 }
 
+// Save updated model back to Manager
 async function saveBizDetails(biz, model) {
   await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(biz)}`, { value: model });
 }
 
+// Read a specific mapping from a business-details model
 function readMapping(model, type) {
   const guid = MAPPING_GUIDS[type];
   if (!guid) return {};
@@ -204,6 +211,7 @@ function readMapping(model, type) {
   try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
 }
 
+// Write a mapping into a business-details model (returns updated model)
 function writeMapping(model, type, data) {
   const guid = MAPPING_GUIDS[type];
   if (!guid) return model;
@@ -250,11 +258,11 @@ const PARTY_GUIDS = {
   address2:    'b1r00002-0000-4000-a000-000000000009',
 };
 
-// ── LOAD SETUP ───────────────────────────────────────────────
+// Load business BIR setup from Manager and return a plain object.
 async function loadSetup(biz) {
   try {
     const [model, guids] = await Promise.all([loadBizDetails(biz), ensureBIRFields(biz)]);
-    const rawCF = model.customFields || model.CustomFields || {};
+    const rawCF = (model.customFields2 && model.customFields2.strings) || model.customFields || {};
     const cf    = parseBIRBlob(rawCF, guids && guids.biz);
     const cls   = cf[BIZ_GUIDS.classification] || '';
     const isInd = cls === 'Individual';
@@ -291,7 +299,7 @@ async function loadSetup(biz) {
   }
 }
 
-// ── LOAD PARTY BIR ───────────────────────────────────────────
+// Load all customers OR suppliers with their BIR custom fields.
 async function loadPartyBIR(biz, partyType) {
   const batchPath = partyType === 'customer'
     ? '/api4/customer-batch'
@@ -301,7 +309,7 @@ async function loadPartyBIR(biz, partyType) {
     const result = {};
     all.forEach(it => {
       const rec   = it.item || {};
-      const rawCF = rec.customFields || rec.CustomFields || {};
+      const rawCF = (rec.customFields2 && rec.customFields2.strings) || rec.customFields || {};
       const cf    = parseBIRBlob(rawCF, guids && guids.party);
       result[it.key] = {
         name:        rec.name || rec.Name || it.key,
