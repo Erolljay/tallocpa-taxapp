@@ -118,7 +118,13 @@ const _birGuidCache = {};
 async function ensureBIRFields(biz) {
   if (_birGuidCache[biz]) return _birGuidCache[biz];
 
-const q = encodeURIComponent(btoa(biz));
+  // Manager's q param = base64url([0xa2, 0x06, nameByteLength, ...nameUtf8Bytes])
+  const nameBytes = new TextEncoder().encode(biz);
+  const buf = new Uint8Array(3 + nameBytes.length);
+  buf[0] = 0xa2; buf[1] = 0x06; buf[2] = nameBytes.length;
+  buf.set(nameBytes, 3);
+  let _s = ''; buf.forEach(b => _s += String.fromCharCode(b));
+  const q = btoa(_s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
   let items = [];
   try {
