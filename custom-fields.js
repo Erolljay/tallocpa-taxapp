@@ -444,20 +444,20 @@
         '<span id="cf-' + partyType + '-count" style="font-size:11px;color:#6b7280;">' + cache.length + ' record' + (cache.length !== 1 ? 's' : '') + ' — Save per row or use Save All</span>' +
         '<button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:5px 14px;" onclick="cfSaveAllParty(\'' + partyType + '\')">Save All</button>' +
         '</div>' +
-        '<div style="overflow-x:auto;width:100%;">' +
-        '<table class="data-table" id="cf-' + partyType + '-table" style="width:100%;table-layout:auto;border-collapse:collapse;">' +
-        '<thead><tr style="font-size:11px;white-space:nowrap;">' +
-        '<th>Name in Manager</th>' +
-        '<th>Taxpayer Type</th>' +
-        '<th>TIN</th>' +
-        '<th>Branch</th>' +
-        '<th>Company / Corp Name</th>' +
-        '<th>Last Name</th>' +
-        '<th>First Name</th>' +
-        '<th>Middle Name</th>' +
-        '<th>Address Line 1</th>' +
-        '<th>Address Line 2</th>' +
-        '<th></th>' +
+        '<div style="width:100%;">' +
+        '<table class="data-table" id="cf-' + partyType + '-table" style="width:100%;table-layout:fixed;border-collapse:collapse;">' +
+        '<thead><tr style="font-size:11px;">' +
+        '<th style="width:14%;">Name in Manager</th>' +
+        '<th style="width:9%;">Taxpayer Type</th>' +
+        '<th style="width:9%;">TIN</th>' +
+        '<th style="width:5%;">Branch</th>' +
+        '<th style="width:12%;">Company / Corp Name</th>' +
+        '<th style="width:8%;">Last Name</th>' +
+        '<th style="width:8%;">First Name</th>' +
+        '<th style="width:7%;">Middle Name</th>' +
+        '<th style="width:13%;">Address Line 1</th>' +
+        '<th style="width:11%;">Address Line 2</th>' +
+        '<th style="width:4%;"></th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table></div>';
