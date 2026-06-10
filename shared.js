@@ -28,6 +28,9 @@ async function apiRequest(method, path, body = null) {
     window.addEventListener('message', handler);
     const msg = { type: 'api-request', method, path, requestId };
     if (body) msg.body = body;
+    if (method === 'PUT' || method === 'POST') {
+      console.log('OUTGOING API REQUEST:', method, path, JSON.stringify(msg));
+    }
     window.parent.postMessage(msg, '*');
   });
 }
