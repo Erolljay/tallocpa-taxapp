@@ -46,15 +46,6 @@
     .period-info .pi-label { font-size: 9px; color: #94a3c4; text-transform: uppercase; letter-spacing: 0.5px; }
     .period-info .pi-value { font-weight: 700; font-size: 13px; }
 
-    /* Tabs */
-    .tab-bar { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 2px solid #e5e7eb; }
-    .tab-btn { background: none; border: none; padding: 8px 16px; font-size: 12px; font-weight: 600; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-    .tab-btn.active { color: #0d1b3e; border-bottom-color: #0d1b3e; }
-    .tax-codes-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .tax-codes-table th { background: #0d1b3e; color: white; padding: 8px 10px; text-align: left; font-size: 11px; }
-    .tax-codes-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
-    .tax-codes-table select { width: 100%; padding: 5px; font-size: 12px; }
-
     /* Print styles */
     @media print {
       body { background: white; }
@@ -79,178 +70,27 @@
     <!-- Business selector injected here by getReportBusiness() if multiple businesses -->
     <div id="biz-selector-wrap"></div>
 
-    <div class="tab-bar">
-      <button class="tab-btn active" data-tab="return">📋 Return</button>
-      <button class="tab-btn" data-tab="taxcodes">🗂 Tax Codes</button>
+    <div class="filter-bar">
+      <label>Quarter</label>
+      <select id="f-quarter"></select>
+      <label>Year</label>
+      <select id="f-year"></select>
+      <div class="filter-sep"></div>
+      <button class="btn btn-primary" id="btn-gen">⚡ Generate</button>
+      <button class="btn btn-outline" id="btn-print" style="display:none" onclick="window.print()">🖨 Print / PDF</button>
     </div>
   </div>
 
-  <!-- RETURN TAB -->
-  <div id="tab-return" class="no-print-wrap">
-    <div class="no-print" style="margin-bottom:14px;">
-      <div class="filter-bar">
-        <label>Quarter</label>
-        <select id="f-quarter"></select>
-        <label>Year</label>
-        <select id="f-year"></select>
-        <div class="filter-sep"></div>
-        <button class="btn btn-primary" id="btn-gen">⚡ Generate</button>
-        <button class="btn btn-outline" id="btn-print" style="display:none" onclick="window.print()">🖨 Print / PDF</button>
-      </div>
-    </div>
-
-    <!-- Output -->
-    <div id="output">
-      <div class="alert alert-info">Select a quarter and year, then click <strong>Generate</strong>.</div>
-    </div>
-  </div>
-
-  <!-- TAX CODES TAB -->
-  <div id="tab-taxcodes" style="display:none;">
-    <div id="taxcodes-output">
-      <div class="alert alert-info">Loading tax code mapping…</div>
-    </div>
+  <!-- Output -->
+  <div id="output">
+    <div class="alert alert-info">Select a quarter and year, then click <strong>Generate</strong>.</div>
   </div>
 
 </div>
 
 <script>const REPORT_ID = "b2c3d4e5-f6a7-4890-b123-c4d5e6f7a8b9";</script>
 <script src="shared.js"></script>
-<script src="tax-codes.js"></script>
 <script>
-// ── BIR category → exact Manager tax code Name (from TAX_CODE_TEMPLATES) ──
-const VAT_CATEGORY_TC_NAME = {
-  sales_taxable:   'Output VAT 12%',
-  sales_zero:      'Zero-Rated Sales',
-  sales_exempt:    'VAT Exempt Sales',
-  purch_capital:   'Input VAT 12% (Capital Goods)',
-  purch_other:     'Input VAT 12% (Other Goods)',
-  purch_services:  'Input VAT 12% (Services)',
-  purch_zero:      'Zero-Rated Purchases',
-  purch_exempt:    'VAT Exempt Purchases',
-  govt_wv012:      'WV012 – Govt WHT VAT Goods (5%)',
-  govt_wv022:      'WV022 – Govt WHT VAT Services (5%)',
-};
-
-// Fetch this business's Manager tax codes as [{ key, name }]
-async function fetchManagerTaxCodes(biz) {
-  const items = await fetchAllBatch('/api4/tax-code-batch', biz);
-  return items.map(row => {
-    const data = row?.item || row?.value || row || {};
-    const name = data.Name || data.name || data.Code || data.code || '';
-    return { key: row?.key || row?.Key || data.key || '', name: name || `(unnamed: ${row?.key || ''})` };
-  });
-}
-
-// Build vm (category key -> Manager tax code key) by matching standard names
-function autoMatchVatMapping(taxCodes) {
-  const nameToKey = {};
-  for (const tc of taxCodes) {
-    const n = (tc.name || '').toLowerCase().trim();
-    if (n) nameToKey[n] = tc.key;
-  }
-  const vm = {};
-  for (const [catKey, tcName] of Object.entries(VAT_CATEGORY_TC_NAME)) {
-    const k = nameToKey[tcName.toLowerCase().trim()];
-    if (k) vm[catKey] = k;
-  }
-  return vm;
-}
-
-// ── TAX CODE MAPPING OVERRIDES (stored locally per business) ────
-function overridesStorageKey(biz) { return `2550q_taxcode_overrides_${biz}`; }
-
-function getMappingOverrides(biz) {
-  try { return JSON.parse(localStorage.getItem(overridesStorageKey(biz))) || {}; }
-  catch { return {}; }
-}
-
-function saveMappingOverrides(biz, overrides) {
-  localStorage.setItem(overridesStorageKey(biz), JSON.stringify(overrides));
-}
-
-// Final vm = auto-matched mapping with any saved overrides applied on top
-async function getVatMapping(biz) {
-  const taxCodes = await fetchManagerTaxCodes(biz);
-  const vm = autoMatchVatMapping(taxCodes);
-  const overrides = getMappingOverrides(biz);
-  for (const [catKey, tcKey] of Object.entries(overrides)) {
-    if (tcKey) vm[catKey] = tcKey; else delete vm[catKey];
-  }
-  return vm;
-}
-
-// ── TAX CODES TAB ────────────────────────────────────────────
-async function loadTaxCodesTab() {
-  const biz = App.currentBusiness || '';
-  const out = document.getElementById('taxcodes-output');
-  if (!biz) { out.innerHTML = `<div class="alert alert-warn">⚠️ No business selected.</div>`; return; }
-
-  out.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading tax codes…</span></div>`;
-  try {
-    const taxCodes = await fetchManagerTaxCodes(biz);
-    const auto      = autoMatchVatMapping(taxCodes);
-    const overrides = getMappingOverrides(biz);
-
-    const optionsHtml = taxCodes
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map(tc => `<option value="${escHtml(tc.key)}">${escHtml(tc.name)}</option>`)
-      .join('');
-
-    const rows = Object.entries(VAT_CATEGORY_TC_NAME).map(([catKey, tcName]) => {
-      const selectedKey = (overrides[catKey] !== undefined ? overrides[catKey] : auto[catKey]) || '';
-      const found = !!auto[catKey];
-      return `
-        <tr>
-          <td>
-            <strong>${escHtml(tcName)}</strong>
-            ${found ? '' : `<div style="font-size:10px;color:#c0392b;">⚠️ No matching tax code found in Manager</div>`}
-          </td>
-          <td>
-            <select class="tc-map-sel" data-cat="${catKey}">
-              <option value="">— Not mapped —</option>
-              ${optionsHtml}
-            </select>
-          </td>
-        </tr>`;
-    }).join('');
-
-    out.innerHTML = `
-      <div class="alert alert-info" style="margin-bottom:14px;font-size:11px;">
-        ℹ️ Each BIR category is matched by default to the Manager tax code with the matching standard name.
-        If you renamed a tax code or use a different one, choose it here. This affects the figures pulled into the 2550Q.
-      </div>
-      <div class="card" style="padding:0;overflow:hidden;">
-        <table class="tax-codes-table">
-          <thead><tr><th style="width:45%;">BIR Tax Code</th><th>Tax Code in Manager (${taxCodes.length} found)</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <div style="margin-top:14px;display:flex;justify-content:flex-end;">
-        <button class="btn btn-primary" id="btn-save-taxcodes">💾 Save Mapping</button>
-      </div>`;
-
-    // Apply selections (after innerHTML to set selected values)
-    out.querySelectorAll('.tc-map-sel').forEach(sel => {
-      const catKey = sel.dataset.cat;
-      const selectedKey = (overrides[catKey] !== undefined ? overrides[catKey] : auto[catKey]) || '';
-      sel.value = selectedKey;
-    });
-
-    document.getElementById('btn-save-taxcodes').addEventListener('click', () => {
-      const newOverrides = {};
-      out.querySelectorAll('.tc-map-sel').forEach(sel => {
-        newOverrides[sel.dataset.cat] = sel.value;
-      });
-      saveMappingOverrides(biz, newOverrides);
-      showToast('✅ Tax code mapping saved.', 'success');
-    });
-  } catch (err) {
-    out.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
-  }
-}
-
 // ── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   const now  = new Date();
@@ -284,18 +124,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.getElementById('btn-gen').addEventListener('click', generate);
-
-  // Tab switching
-  document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = btn.dataset.tab;
-      document.getElementById('tab-return').style.display    = tab === 'return'   ? '' : 'none';
-      document.getElementById('tab-taxcodes').style.display   = tab === 'taxcodes' ? '' : 'none';
-      if (tab === 'taxcodes') loadTaxCodesTab();
-    });
-  });
 });
 
 // ── GENERATE ──────────────────────────────────────────────────
@@ -319,11 +147,11 @@ async function generate() {
   const quarter = parseInt(document.getElementById('f-quarter').value, 10);
   const year    = parseInt(document.getElementById('f-year').value, 10);
   const { start, end } = getPeriodDates('quarterly', quarter, year);
+  const vm      = setup.vatMapping || {};
 
   output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions from Manager…</span></div>`;
 
   try {
-    const vm = await getVatMapping(biz);
     // Fetch invoices + receipts in parallel
     const [salesItems, purchItems, receiptItems] = await Promise.all([
       fetchAllBatch('/api4/sales-invoice-batch',    biz),
@@ -380,7 +208,7 @@ async function generate() {
     }
 
     // ── SCHEDULE 3: CREDITABLE VAT WITHHELD ───────────────────
-    const cwtAccounts  = (setup.vatMapping || {}).cwtAccounts || [];
+    const cwtAccounts  = vm.cwtAccounts || [];
     const sched3Rows   = [...govtWVRows];
 
     for (const { item } of receipts) {
@@ -463,8 +291,8 @@ function renderForm(el, d) {
     <div class="pi-item"><div class="pi-label">Period</div><div class="pi-value">${periodFrom} – ${periodTo}</div></div>
     <div class="pi-item"><div class="pi-label">TIN</div><div class="pi-value">${escHtml(s.tin||'—')}</div></div>
     <div class="pi-item" style="margin-left:auto;">
-      <div class="pi-label">Tax Codes</div>
-      <div class="pi-value" style="font-size:10px;">${d.vm.sales_taxable ? '✅ Found' : '⚠️ Missing'}</div>
+      <div class="pi-label">VAT Mapping</div>
+      <div class="pi-value" style="font-size:10px;">${d.vm.sales_taxable ? '✅ Mapped' : '⚠️ Incomplete'}</div>
     </div>
   </div>
 
@@ -753,8 +581,8 @@ function renderForm(el, d) {
   <!-- NOTES -->
   <div class="alert alert-info no-print" style="font-size:11px;">
     ℹ️ <strong>Yellow fields</strong> require manual input. <strong>White fields</strong> are auto-computed from Manager.io transactions.
-    Figures are based on the standard BIR tax codes. Verify all amounts before filing.
-    ${!d.vm.sales_taxable ? '<br>⚠️ <strong>Standard tax codes not found.</strong> Go to Setup → Tax Codes and create the missing standard tax codes.' : ''}
+    Figures are based on tax codes mapped in Setup. Verify all amounts before filing.
+    ${!d.vm.sales_taxable ? '<br>⚠️ <strong>VAT mapping is incomplete.</strong> Go to Setup → VAT Mapping to map your tax codes.' : ''}
   </div>
   `;
 
