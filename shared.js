@@ -144,7 +144,7 @@ async function ensureBIRFields(biz) {
   console.log('ensureBIRFields: BIR-named items', JSON.stringify(items.filter(i => {
     const it2 = i.item || i.value || i;
     const n = it2.name || it2.Name || '';
-    return n.indexOf('BIR') >= 0;
+    return n === BIR_CF_NAMES.biz || n === BIR_CF_NAMES.party || n === BIR_CF_NAMES.emp;
   })));
 
   const findGuid = name => {
@@ -164,15 +164,15 @@ async function ensureBIRFields(biz) {
 
   // Create any missing definitions
   const defs = [
-    { slot: 'biz',   name: BIR_CF_NAMES.biz   },
-    { slot: 'party', name: BIR_CF_NAMES.party  },
-    { slot: 'emp',   name: BIR_CF_NAMES.emp    },
+    { slot: 'biz',   name: BIR_CF_NAMES.biz,  placement: BIR_PLACEMENTS.biz.map(p => p.Key)   },
+    { slot: 'party', name: BIR_CF_NAMES.party, placement: BIR_PLACEMENTS.party.map(p => p.Key) },
+    { slot: 'emp',   name: BIR_CF_NAMES.emp,  placement: BIR_PLACEMENTS.emp.map(p => p.Key)   },
   ];
   for (const def of defs) {
     if (guids[def.slot]) continue;
     try {
       const created = await apiRequest('POST', '/api4/text-custom-field', {
-        value: { name: def.name, lockedForManualEditing: true },
+        value: { name: def.name, lockedForManualEditing: true, placement: def.placement },
       });
       if (created) {
         guids[def.slot] = typeof created === 'string' ? created : (created.key || null);
@@ -190,6 +190,14 @@ async function ensureBIRFields(biz) {
       console.warn('ensureBIRFields: could not create', def.name, ':', e.message);
     }
   }
+
+  // customer and supplier share the same 'BIR Party Data' definition
+  guids.customer = guids.party;
+  guids.supplier = guids.party;
+
+  _birGuidCache[biz] = guids;
+  return guids;
+}
 
   // customer and supplier share the same 'BIR Party Data' definition
   guids.customer = guids.party;
