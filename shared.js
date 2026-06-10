@@ -18,6 +18,7 @@ async function apiRequest(method, path, body = null) {
     function handler(event) {
       const d = event.data;
       if (d?.type?.endsWith('-response') && d?.requestId === requestId) {
+        console.log('RAW API RESPONSE:', method, path, JSON.stringify(d));
         window.removeEventListener('message', handler);
         clearTimeout(timeout);
         if (d.error) reject(new Error(d.error));
@@ -123,16 +124,63 @@ const BIR_PLACEMENTS = {
   emp:   [{ Key: 'dadb7f95-a5dd-45c0-945d-6ad4ee28776e', UniqueName: 'Employee' }],
 };
 
-// Returns the hardcoded GUIDs — no API lookup needed.
-async function ensureBIRFields(_biz) {
-  return {
-    biz:      BIR_PLACEMENTS.biz[0].Key,
-    customer: BIR_PLACEMENTS.party.find(p => p.UniqueName === 'Customer').Key,
-    supplier: BIR_PLACEMENTS.party.find(p => p.UniqueName === 'Supplier').Key,
-    emp:      BIR_PLACEMENTS.emp[0].Key,
-    // legacy alias used by code that only needs one party GUID (defaults to Customer)
-    party:    BIR_PLACEMENTS.party.find(p => p.UniqueName === 'Customer').Key,
+const _birGuidCache = {};
+
+// Looks up custom field DEFINITION GUIDs by name (needed to read/write record data).
+// BIR_PLACEMENTS above are placement GUIDs (UI location) — different from definition GUIDs.
+async function ensureBIRFields(biz) {
+  if (_birGuidCache[biz]) return _birGuidCache[biz];
+
+  let items = [];
+  try {
+    const res = await apiRequest('GET', `/api4/text-custom-field-batch?business=${encodeURIComponent(biz)}`);
+    items = (res && res.items) ? res.items : [];
+  } catch(e) {
+    console.warn('ensureBIRFields: batch fetch failed:', e.message);
+  }
+
+  const findGuid = name => {
+    const it = items.find(i => ((i.item || {}).name || '') === name);
+    return it ? it.key : null;
   };
+
+  const guids = {
+    biz:   findGuid(BIR_CF_NAMES.biz),
+    party: findGuid(BIR_CF_NAMES.party),
+    emp:   findGuid(BIR_CF_NAMES.emp),
+  };
+
+  // Create any missing definitions
+  const defs = [
+    { slot: 'biz',   name: BIR_CF_NAMES.biz   },
+    { slot: 'party', name: BIR_CF_NAMES.party  },
+    { slot: 'emp',   name: BIR_CF_NAMES.emp    },
+  ];
+  for (const def of defs) {
+    if (guids[def.slot]) continue;
+    try {
+      const created = await apiRequest('POST', '/api4/text-custom-field', {
+        value: { name: def.name, lockedForManualEditing: true },
+      });
+      if (created) {
+        guids[def.slot] = typeof created === 'string' ? created : (created.key || null);
+      }
+      if (!guids[def.slot]) {
+        const re = await apiRequest('GET', `/api4/text-custom-field-batch?business=${encodeURIComponent(biz)}`);
+        const found = ((re && re.items) || []).find(i => ((i.item || {}).name || '') === def.name);
+        if (found) guids[def.slot] = found.key;
+      }
+    } catch(e) {
+      console.warn('ensureBIRFields: could not create', def.name, ':', e.message);
+    }
+  }
+
+  // customer and supplier share the same 'BIR Party Data' definition
+  guids.customer = guids.party;
+  guids.supplier = guids.party;
+
+  _birGuidCache[biz] = guids;
+  return guids;
 }
 
 // Parse the BIR JSON blob from a Manager record's customFields2.strings using the real GUID.
