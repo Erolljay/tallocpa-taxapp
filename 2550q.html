@@ -135,7 +135,7 @@ const VAT_CATEGORY_TC_NAME = {
 // Fetch this business's Manager tax codes as [{ key, name }]
 async function fetchManagerTaxCodes(biz) {
   const items = await fetchAllBatch('/api4/tax-code-batch', biz);
-  return items.map(({ key, item }) => ({ key, name: item?.Name || '' }));
+  return items.map(({ key, item }) => ({ key, name: item?.Name || item?.name || '' }));
 }
 
 // Build vm (category key -> Manager tax code key) by matching standard names
