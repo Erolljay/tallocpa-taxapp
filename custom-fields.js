@@ -192,7 +192,7 @@
         currentModel = model;
 
         // BIR data lives in customFields2.strings keyed by the real Manager GUID
-        var cf = parseBIRBlob((model.customFields2 && model.customFields2.strings) || {}, birGuids && birGuids.biz);
+        var cf = parseBIRBlob((model.customFields2 && model.customFields2.strings) || {}, birGuids && birGuids.biz, 'b1r00001-');
 
         BUSINESS_FIELDS.forEach(function(f) {
           var el = container.querySelector('[data-cf-id="' + f.id + '"]');
@@ -417,7 +417,7 @@
       }
       var dis = 'background:#f1f5f9;color:#94a3b8;';
       var rows = cache.map(function(rec, idx) {
-        var cf = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party);
+        var cf = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
         var pType  = cf[PARTY_FIELDS[0].id] || 'Non-Individual';
         var isInd  = pType === 'Individual';
         var tin    = cf[PARTY_FIELDS[1].id] || '';
@@ -493,7 +493,7 @@
         { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
       ];
       // Patch the BIR blob, then wrap in Manager customFields2
-      var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party);
+      var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
       var newBlob  = patchCF(existingBlob, updates);
       var managerCF2 = buildBIRCustomFields(rec.value, birGuids && birGuids.party, newBlob);
       var putValue = buildPartyValue(rec.value, managerCF2);
@@ -533,7 +533,7 @@
             { field: PARTY_FIELDS[7], value: tr.querySelector('.cf-a1').value.trim() },
             { field: PARTY_FIELDS[8], value: tr.querySelector('.cf-a2').value.trim() },
           ];
-          var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party);
+          var existingBlob = parseBIRBlob((rec.value.customFields2 && rec.value.customFields2.strings) || {}, birGuids && birGuids.party, 'b1r00002-');
           var newBlob   = patchCF(existingBlob, updates);
           var managerCF2 = buildBIRCustomFields(rec.value, birGuids && birGuids.party, newBlob);
           var putValue  = buildPartyValue(rec.value, managerCF2);
@@ -605,7 +605,7 @@
       if (!key) { host.innerHTML = ''; return; }
       var emp = cache.find(function(e) { return e.key === key; });
       if (!emp) return;
-      var empBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp);
+      var empBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
       var groups = [
         { heading: 'BIR Identity', fields: EMPLOYEE_FIELDS.slice(0, 4) },
         { heading: 'Employment Details', fields: EMPLOYEE_FIELDS.slice(4, 6) },
@@ -631,7 +631,7 @@
       if (!business) return;
       var btn = document.getElementById('cf-emp-save-btn');
       var updates = collectValues(e.currentTarget, EMPLOYEE_FIELDS);
-      var existingBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp);
+      var existingBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
       var newBlob   = patchCF(existingBlob, updates);
       var managerCF2 = buildBIRCustomFields(emp.value, birGuids && birGuids.emp, newBlob);
       var updated   = buildSafeValue(emp.value, { customFields2: managerCF2 });
