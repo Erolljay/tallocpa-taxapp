@@ -21,11 +21,13 @@ const VAT_CATEGORIES = [
   { key: 'sales_taxable',  label: 'Taxable Sales (12%)',       side: 'sales',    defaultName: 'Sales - Output VAT 12%',    rate: 0.12 },
   { key: 'sales_zero',     label: 'Zero-Rated Sales',          side: 'sales',    defaultName: 'Sales - Zero-Rated',        rate: 0    },
   { key: 'sales_exempt',   label: 'VAT Exempt Sales',          side: 'sales',    defaultName: 'Sales - VAT Exempt',        rate: 0    },
-  { key: 'purch_capital',  label: 'Input VAT – Capital Goods', side: 'purchase', defaultName: 'Input VAT - Capital Goods', rate: 0.12 },
-  { key: 'purch_other',    label: 'Input VAT – Other Goods',   side: 'purchase', defaultName: 'Input VAT - Other Goods',   rate: 0.12 },
-  { key: 'purch_services', label: 'Input VAT – Services',      side: 'purchase', defaultName: 'Input VAT - Services',      rate: 0.12 },
+  { key: 'purch_capital',  label: 'Input VAT – Capital Goods', side: 'purchase', defaultName: 'Input VAT 12% (Capital Goods)', rate: 0.12 },
+  { key: 'purch_other',    label: 'Input VAT – Other Goods',   side: 'purchase', defaultName: 'Input VAT 12% (Other Goods)',   rate: 0.12 },
+  { key: 'purch_services', label: 'Input VAT – Services',      side: 'purchase', defaultName: 'Input VAT 12% (Services)',      rate: 0.12 },
   { key: 'purch_zero',     label: 'Zero-Rated Purchases',      side: 'purchase', defaultName: 'Zero-Rated Purchases',      rate: 0    },
   { key: 'purch_exempt',   label: 'Exempt Purchases',          side: 'purchase', defaultName: 'Purchase - VAT Exempt',     rate: 0    },
+  { key: 'govt_wv012',     label: 'Govt Withholding VAT – Goods (5%)',    side: 'sales', defaultName: 'WV012 – Govt WHT VAT Goods (5%)',    rate: 0.05 },
+  { key: 'govt_wv022',     label: 'Govt Withholding VAT – Services (5%)', side: 'sales', defaultName: 'WV022 – Govt WHT VAT Services (5%)', rate: 0.05 },
 ];
 
 let _taxCodes = [];
