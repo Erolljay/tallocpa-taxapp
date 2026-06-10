@@ -231,11 +231,6 @@ async function loadBizDetails(biz) {
   return model || {};
 }
 
-// Save updated model back to Manager
-async function saveBizDetails(biz, model) {
-  await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(biz)}`, { value: model });
-}
-
 // ── BUSINESS-LEVEL BIR DATA STORE ────────────────────────────
 // PUT /api4/business-details does not persist customFields2 via this bridge
 // (confirmed Manager platform limitation). As a workaround, business-level
@@ -302,18 +297,6 @@ function readMapping(model, type) {
   const raw = (model.customFields || {})[guid];
   try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
 }
-
-// Write a mapping into a business-details model (returns updated model)
-function writeMapping(model, type, data) {
-  const guid = MAPPING_GUIDS[type];
-  if (!guid) return model;
-  const updated = Object.assign({}, model);
-  updated.customFields = Object.assign({}, model.customFields || {});
-  updated.customFields[guid] = JSON.stringify(data);
-  return updated;
-}
-
-function tryParse(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
 
 // ── BIR FIELD GUIDs ──────────────────────────────────────────
 const BIZ_GUIDS = {
