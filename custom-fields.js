@@ -94,13 +94,6 @@
     return String(s != null ? s : '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function readCF(model, field) {
-    var cf = model && model.customFields;
-    if (!cf) return '';
-    var v = cf[field.id];
-    return v == null ? '' : String(v);
-  }
-
   function patchCF(existing, updates) {
     var out = Object.assign({}, existing || {});
     for (var i = 0; i < updates.length; i++) {
@@ -171,7 +164,6 @@
 
   function mountBusinessSection(container) {
     var currentModel = {};
-    var currentBizKey = null;
     var birGuids = null;
 
     async function refresh() {
@@ -190,7 +182,6 @@
         var rec = await getOrCreateBizDataRecord(business);
         if (statusEl) statusEl.textContent = '';
         currentModel = rec.value;
-        currentBizKey = rec.key;
 
         // BIR data lives in customFields2.strings keyed by the real Manager GUID
         var cf = parseBIRBlob((currentModel.customFields2 && currentModel.customFields2.strings) || {}, birGuids && birGuids.biz, 'b1r00001-');
@@ -423,44 +414,50 @@
         var mn     = cf[PARTY_FIELDS[6].id] || '';
         var a1     = cf[PARTY_FIELDS[7].id] || '';
         var a2     = cf[PARTY_FIELDS[8].id] || '';
-        return '<tr data-key="' + esc(rec.key) + '" data-idx="' + idx + '">' +
-          '<td style="font-weight:600;min-width:140px;font-size:11px;">' + esc(rec.displayName) + '</td>' +
-          '<td><select class="form-select cf-ptype" style="width:120px;font-size:10px;" onchange="cfPartyToggle(this)">' +
+        var isComplete = !!(tin && (isInd ? (ln && fn) : corp) && a1);
+        return '<tr data-key="' + esc(rec.key) + '" data-idx="' + idx + '" data-complete="' + (isComplete ? '1' : '0') + '">' +
+          '<td style="font-weight:600;font-size:11px;">' + esc(rec.displayName) + '</td>' +
+          '<td><select class="form-select cf-ptype" style="width:100%;font-size:10px;" onchange="cfPartyToggle(this)">' +
             '<option value="Non-Individual"' + (!isInd ? ' selected' : '') + '>Non-Individual</option>' +
             '<option value="Individual"' + (isInd ? ' selected' : '') + '>Individual</option>' +
           '</select></td>' +
-          '<td><input class="form-input cf-tin"    style="width:120px;font-size:11px;" placeholder="000-000-000-000" value="' + esc(tin) + '"></td>' +
-          '<td><input class="form-input cf-branch" style="width:60px;font-size:11px;" placeholder="000" value="' + esc(branch) + '"></td>' +
-          '<td><input class="form-input cf-corp" style="width:150px;font-size:11px;" placeholder="Corp / Registered Name" value="' + esc(corp) + '"' + (isInd ? ' disabled style="' + dis + 'width:150px;font-size:11px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-ln" style="width:100px;font-size:11px;" placeholder="Dela Cruz" value="' + esc(ln) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100px;font-size:11px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-fn" style="width:90px;font-size:11px;" placeholder="Juan" value="' + esc(fn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:90px;font-size:11px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-mn" style="width:60px;font-size:11px;" placeholder="Santos" value="' + esc(mn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:60px;font-size:11px;"' : '') + '></td>' +
-          '<td><input class="form-input cf-a1" style="width:170px;font-size:11px;" placeholder="Unit, Bldg, Street, Brgy" value="' + esc(a1) + '"></td>' +
-          '<td><input class="form-input cf-a2" style="width:150px;font-size:11px;" placeholder="City / Municipality, Province" value="' + esc(a2) + '"></td>' +
+          '<td><input class="form-input cf-tin"    style="width:100%;font-size:11px;" placeholder="000-000-000-000" value="' + esc(tin) + '"></td>' +
+          '<td><input class="form-input cf-branch" style="width:100%;font-size:11px;" placeholder="000" value="' + esc(branch) + '"></td>' +
+          '<td><input class="form-input cf-corp" style="width:100%;font-size:11px;" placeholder="Corp / Registered Name" value="' + esc(corp) + '"' + (isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-ln" style="width:100%;font-size:11px;" placeholder="Dela Cruz" value="' + esc(ln) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-fn" style="width:100%;font-size:11px;" placeholder="Juan" value="' + esc(fn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-mn" style="width:100%;font-size:11px;" placeholder="Santos" value="' + esc(mn) + '"' + (!isInd ? ' disabled style="' + dis + 'width:100%;font-size:11px;"' : '') + '></td>' +
+          '<td><input class="form-input cf-a1" style="width:100%;font-size:11px;" placeholder="Unit, Bldg, Street, Brgy" value="' + esc(a1) + '"></td>' +
+          '<td><input class="form-input cf-a2" style="width:100%;font-size:11px;" placeholder="City / Municipality, Province" value="' + esc(a2) + '"></td>' +
           '<td><button class="btn btn-primary btn-sm" data-action="cf-save-row" onclick="cfSavePartyRow(this,\'' + partyType + '\')" style="font-size:10px;">Save</button></td>' +
           '</tr>';
       }).join('');
 
       container.innerHTML =
         '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">' +
-        '<input type="text" class="form-input" id="cf-' + partyType + '-search" placeholder="Search by name…" style="width:220px;" oninput="cfPartySearch(this,\'cf-' + partyType + '-table\')">'+
-        '<span style="font-size:11px;color:#6b7280;">' + cache.length + ' record' + (cache.length !== 1 ? 's' : '') + ' — Save per row or use Save All</span>' +
+        '<input type="text" class="form-input" id="cf-' + partyType + '-search" placeholder="Search by name…" style="width:220px;" oninput="cfPartyFilter(\'' + partyType + '\')">'+
+        '<select class="form-select" id="cf-' + partyType + '-filter" style="width:200px;font-size:12px;" onchange="cfPartyFilter(\'' + partyType + '\')">' +
+          '<option value="all">Show all</option>' +
+          '<option value="incomplete">Missing details only</option>' +
+          '<option value="complete">Completed only</option>' +
+        '</select>' +
+        '<span id="cf-' + partyType + '-count" style="font-size:11px;color:#6b7280;">' + cache.length + ' record' + (cache.length !== 1 ? 's' : '') + ' — Save per row or use Save All</span>' +
         '<button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:5px 14px;" onclick="cfSaveAllParty(\'' + partyType + '\')">Save All</button>' +
         '</div>' +
         '<div style="overflow-x:auto;width:100%;">' +
-        '<table class="data-table" id="cf-' + partyType + '-table" style="min-width:1300px;width:100%;border-collapse:collapse;">' +
+        '<table class="data-table" id="cf-' + partyType + '-table" style="width:100%;table-layout:auto;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;white-space:nowrap;">' +
-        '<th style="min-width:160px;">Name in Manager</th>' +
-        '<th style="min-width:130px;">Taxpayer Type</th>' +
-        '<th style="min-width:130px;">TIN</th>' +
-        '<th style="min-width:70px;">Branch</th>' +
-        '<th style="min-width:160px;">Company / Corp Name</th>' +
-        '<th style="min-width:110px;">Last Name</th>' +
-        '<th style="min-width:100px;">First Name</th>' +
-        '<th style="min-width:70px;">Middle Name</th>' +
-        '<th style="min-width:180px;">Address Line 1</th>' +
-        '<th style="min-width:160px;">Address Line 2</th>' +
-        '<th style="min-width:60px;"></th>' +
+        '<th>Name in Manager</th>' +
+        '<th>Taxpayer Type</th>' +
+        '<th>TIN</th>' +
+        '<th>Branch</th>' +
+        '<th>Company / Corp Name</th>' +
+        '<th>Last Name</th>' +
+        '<th>First Name</th>' +
+        '<th>Middle Name</th>' +
+        '<th>Address Line 1</th>' +
+        '<th>Address Line 2</th>' +
+        '<th></th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table></div>';
@@ -745,12 +742,26 @@
     dis('cf-mn', !isInd);
   };
 
-  window.cfPartySearch = function(inp, tableId) {
-    var q = inp.value.toLowerCase();
-    document.querySelectorAll('#' + tableId + ' tbody tr').forEach(function(tr) {
+  window.cfPartyFilter = function(partyType) {
+    var searchEl = document.getElementById('cf-' + partyType + '-search');
+    var filterEl = document.getElementById('cf-' + partyType + '-filter');
+    var q = searchEl ? searchEl.value.toLowerCase() : '';
+    var mode = filterEl ? filterEl.value : 'all';
+    var shown = 0, total = 0;
+    document.querySelectorAll('#cf-' + partyType + '-table tbody tr').forEach(function(tr) {
+      total++;
       var name = (tr.querySelector('td:first-child') ? tr.querySelector('td:first-child').textContent : '').toLowerCase();
-      tr.style.display = name.indexOf(q) >= 0 ? '' : 'none';
+      var matchesSearch = name.indexOf(q) >= 0;
+      var complete = tr.dataset.complete === '1';
+      var matchesFilter = mode === 'all' || (mode === 'incomplete' && !complete) || (mode === 'complete' && complete);
+      var visible = matchesSearch && matchesFilter;
+      tr.style.display = visible ? '' : 'none';
+      if (visible) shown++;
     });
+    var countEl = document.getElementById('cf-' + partyType + '-count');
+    if (countEl) {
+      countEl.textContent = (shown === total ? total + ' record' + (total !== 1 ? 's' : '') : shown + ' of ' + total + ' records') + ' — Save per row or use Save All';
+    }
   };
 
   window.cfSavePartyRow = function(btn, pType) {
@@ -773,13 +784,6 @@
     BUSINESS_FIELDS:   BUSINESS_FIELDS,
     PARTY_FIELDS:      PARTY_FIELDS,
     EMPLOYEE_FIELDS:   EMPLOYEE_FIELDS,
-    readCF: readCF,
-    readPartyField: function(model, fieldId) {
-      var cf = model && model.customFields;
-      if (!cf) return '';
-      var v = cf[fieldId];
-      return v == null ? '' : String(v);
-    },
   };
 
 })();
