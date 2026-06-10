@@ -171,6 +171,7 @@
 
   function mountBusinessSection(container) {
     var currentModel = {};
+    var currentBizKey = null;
     var birGuids = null;
 
     async function refresh() {
@@ -186,13 +187,13 @@
       try {
         birGuids = await ensureBIRFields(business);
 
-        var model = await apiRequest('GET', '/api4/business-details?business=' + encodeURIComponent(business));
+        var rec = await getOrCreateBizDataRecord(business);
         if (statusEl) statusEl.textContent = '';
-        if (!model) return;
-        currentModel = model;
+        currentModel = rec.value;
+        currentBizKey = rec.key;
 
         // BIR data lives in customFields2.strings keyed by the real Manager GUID
-        var cf = parseBIRBlob((model.customFields2 && model.customFields2.strings) || {}, birGuids && birGuids.biz, 'b1r00001-');
+        var cf = parseBIRBlob((currentModel.customFields2 && currentModel.customFields2.strings) || {}, birGuids && birGuids.biz, 'b1r00001-');
 
         BUSINESS_FIELDS.forEach(function(f) {
           var el = container.querySelector('[data-cf-id="' + f.id + '"]');
@@ -315,17 +316,11 @@
       try {
         if (!birGuids) birGuids = await ensureBIRFields(business);
         if (!birGuids || !birGuids.biz) throw new Error('BIR custom field not ready');
-        var managerCF2 = buildBIRCustomFields(currentModel, birGuids.biz, birBlob);
-        var bizValue = {
-          name:          (currentModel || {}).name    || null,
-          address:       (currentModel || {}).address || null,
-          customFields2: managerCF2,
-        };
-        await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
+        var managerCF2 = await saveBizDataRecord(business, birGuids.biz, birBlob);
         currentModel = Object.assign({}, currentModel || {}, { customFields2: managerCF2 });
         managerOk = true;
       } catch(err) {
-        console.warn('business-details PUT failed:', err.message);
+        console.warn('business BIR data save failed:', err.message);
       }
 
       btn.disabled = false;
