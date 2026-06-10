@@ -135,7 +135,11 @@ const VAT_CATEGORY_TC_NAME = {
 // Fetch this business's Manager tax codes as [{ key, name }]
 async function fetchManagerTaxCodes(biz) {
   const items = await fetchAllBatch('/api4/tax-code-batch', biz);
-  return items.map(({ key, item }) => ({ key, name: item?.Name || item?.name || '' }));
+  return items.map(row => {
+    const data = row?.item || row?.value || row || {};
+    const name = data.Name || data.name || data.Code || data.code || '';
+    return { key: row?.key || row?.Key || data.key || '', name: name || `(unnamed: ${row?.key || ''})` };
+  });
 }
 
 // Build vm (category key -> Manager tax code key) by matching standard names
