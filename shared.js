@@ -18,7 +18,6 @@ async function apiRequest(method, path, body = null) {
     function handler(event) {
       const d = event.data;
       if (d?.type?.endsWith('-response') && d?.requestId === requestId) {
-        console.log('RAW API RESPONSE:', method, path, JSON.stringify(d));
         window.removeEventListener('message', handler);
         clearTimeout(timeout);
         if (d.error) reject(new Error(d.error));
@@ -28,9 +27,6 @@ async function apiRequest(method, path, body = null) {
     window.addEventListener('message', handler);
     const msg = { type: 'api-request', method, path, requestId };
     if (body) msg.body = body;
-    if (method === 'PUT' || method === 'POST') {
-      console.log('OUTGOING API REQUEST:', method, path, JSON.stringify(msg));
-    }
     window.parent.postMessage(msg, '*');
   });
 }
@@ -140,12 +136,6 @@ async function ensureBIRFields(biz) {
   } catch(e) {
     console.warn('ensureBIRFields: batch fetch failed:', e.message);
   }
-  console.log('ensureBIRFields: items count', items.length, 'sample', JSON.stringify(items.slice(0,3)));
-  console.log('ensureBIRFields: BIR-named items', JSON.stringify(items.filter(i => {
-    const it2 = i.item || i.value || i;
-    const n = it2.name || it2.Name || '';
-    return n === BIR_CF_NAMES.biz || n === BIR_CF_NAMES.party || n === BIR_CF_NAMES.emp;
-  })));
 
   const findGuid = name => {
     const it = items.find(i => {
@@ -200,11 +190,31 @@ async function ensureBIRFields(biz) {
 }
 
 // Parse the BIR JSON blob from a Manager record's customFields2.strings using the real GUID.
-function parseBIRBlob(managerCF, guid) {
-  if (!guid || !managerCF) return {};
-  const raw = managerCF[guid];
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
+// If the canonical guid has no data (e.g. record was saved under an older/orphaned
+// definition GUID), fall back to scanning all stored blobs for one whose keys match
+// fallbackPrefix (e.g. 'b1r00002-' for party fields).
+function parseBIRBlob(managerCF, guid, fallbackPrefix) {
+  if (!managerCF) return {};
+  if (guid && managerCF[guid]) {
+    try {
+      const o = JSON.parse(managerCF[guid]);
+      if (o && typeof o === 'object') return o;
+    } catch {}
+  }
+  if (fallbackPrefix) {
+    for (const k of Object.keys(managerCF)) {
+      if (k === guid) continue;
+      const v = managerCF[k];
+      if (typeof v !== 'string') continue;
+      try {
+        const o = JSON.parse(v);
+        if (o && typeof o === 'object' && Object.keys(o).some(kk => kk.startsWith(fallbackPrefix))) {
+          return o;
+        }
+      } catch {}
+    }
+  }
+  return {};
 }
 
 // Build Manager customFields2 object: preserves existing strings, replaces the BIR blob.
@@ -287,7 +297,7 @@ async function loadSetup(biz) {
   try {
     const [model, guids] = await Promise.all([loadBizDetails(biz), ensureBIRFields(biz)]);
     const rawCF = model.customFields || {};
-    const cf    = parseBIRBlob(rawCF, guids && guids.biz);
+    const cf    = parseBIRBlob(rawCF, guids && guids.biz, 'b1r00001-');
     const cls   = cf[BIZ_GUIDS.classification] || '';
     const isInd = cls === 'Individual';
     const ln    = cf[BIZ_GUIDS.lastName]  || '';
@@ -335,7 +345,7 @@ async function loadPartyBIR(biz, partyType) {
     all.forEach(it => {
       const rec   = it.item || {};
       const rawCF = (rec.customFields2 && rec.customFields2.strings) || rec.customFields || {};
-      const cf    = parseBIRBlob(rawCF, partyGuid);
+      const cf    = parseBIRBlob(rawCF, partyGuid, 'b1r00002-');
       result[it.key] = {
         name:        rec.name || rec.Name || it.key,
         type:        cf[PARTY_GUIDS.type]        || 'Non-Individual',
