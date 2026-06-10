@@ -192,7 +192,7 @@
         currentModel = model;
 
         // BIR data lives in customFields2.strings keyed by the real Manager GUID
-        var cf = parseBIRBlob(model.customFields || {}, birGuids && birGuids.biz);
+        var cf = parseBIRBlob((model.customFields2 && model.customFields2.strings) || {}, birGuids && birGuids.biz);
 
         BUSINESS_FIELDS.forEach(function(f) {
           var el = container.querySelector('[data-cf-id="' + f.id + '"]');
