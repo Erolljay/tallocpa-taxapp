@@ -72,7 +72,34 @@ async function loadBusinesses(selectId, onchange) {
 }
 
 // ── REPORT CONTEXT — for pages opened via Manager Custom Button ──
+// ── PAGE CONTEXT — ask Manager which business this tab belongs to ──
+function getPageContextBusiness() {
+  return new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve(null);
+    }, 3000);
+    function handler(event) {
+      const d = event.data;
+      if (d?.type === 'page-response' && d?.requestId === requestId) {
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+        resolve(d?.body?.query?.business || null);
+      }
+    }
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: 'page-request', requestId }, '*');
+  });
+}
+
 async function getReportBusiness(containerEl) {
+  const ctxBiz = await getPageContextBusiness();
+  if (ctxBiz) {
+    App.currentBusiness = ctxBiz;
+    return ctxBiz;
+  }
+
   const res = await apiRequest('GET', '/api4/businesses');
   const businesses = res?.businesses || [];
   if (!businesses.length) throw new Error('No businesses found in Manager.');
