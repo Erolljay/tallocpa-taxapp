@@ -140,10 +140,20 @@ async function ensureBIRFields(biz) {
   } catch(e) {
     console.warn('ensureBIRFields: batch fetch failed:', e.message);
   }
+  console.log('ensureBIRFields: items count', items.length, 'sample', JSON.stringify(items.slice(0,3)));
+  console.log('ensureBIRFields: BIR-named items', JSON.stringify(items.filter(i => {
+    const it2 = i.item || i.value || i;
+    const n = it2.name || it2.Name || '';
+    return n.indexOf('BIR') >= 0;
+  })));
 
   const findGuid = name => {
-    const it = items.find(i => ((i.item || {}).name || '') === name);
-    return it ? it.key : null;
+    const it = items.find(i => {
+      const it2 = i.item || i.value || i;
+      const n = it2.name || it2.Name;
+      return n === name;
+    });
+    return it ? (it.key || it.Key) : null;
   };
 
   const guids = {
@@ -169,8 +179,12 @@ async function ensureBIRFields(biz) {
       }
       if (!guids[def.slot]) {
         const re = await fetchAllBatch('/api4/text-custom-field-batch', biz);
-        const found = re.find(i => ((i.item || {}).name || '') === def.name);
-        if (found) guids[def.slot] = found.key;
+        const found = re.find(i => {
+          const it2 = i.item || i.value || i;
+          const n = it2.name || it2.Name;
+          return n === def.name;
+        });
+        if (found) guids[def.slot] = found.key || found.Key;
       }
     } catch(e) {
       console.warn('ensureBIRFields: could not create', def.name, ':', e.message);
