@@ -136,7 +136,6 @@ async function ensureBIRFields(biz) {
   } catch(e) {
     console.warn('ensureBIRFields: batch fetch failed:', e.message);
   }
-
   const findGuid = name => {
     const it = items.find(i => {
       const it2 = i.item || i.value || i;
@@ -237,6 +236,65 @@ async function saveBizDetails(biz, model) {
   await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(biz)}`, { value: model });
 }
 
+// ── BUSINESS-LEVEL BIR DATA STORE ────────────────────────────
+// PUT /api4/business-details does not persist customFields2 via this bridge
+// (confirmed Manager platform limitation). As a workaround, business-level
+// BIR data (TIN, RDO code, address, etc.) is stored on a dedicated, inactive
+// "dummy" customer record, identified by name.
+const BIZ_DATA_RECORD_NAME = '__BIR_BUSINESS_DATA__';
+
+// Find (or create) the dummy customer record used to hold business-level BIR data.
+// Returns { key, value }.
+async function getOrCreateBizDataRecord(biz) {
+  const all = await fetchAllBatch('/api4/customer-batch', biz);
+  const found = all.find(it => {
+    const v = it.item || {};
+    return (v.name || v.Name) === BIZ_DATA_RECORD_NAME;
+  });
+  if (found) return { key: found.key, value: found.item || {} };
+
+  const created = await apiRequest('POST', '/api4/customer', {
+    value: {
+      name: BIZ_DATA_RECORD_NAME,
+      inactive: true,
+      customFields2: { strings: {} },
+    },
+  });
+  const key = (created && (created.key || created.Key)) || (typeof created === 'string' ? created : null);
+  if (!key) throw new Error('Could not create business data record');
+  return { key, value: { name: BIZ_DATA_RECORD_NAME, inactive: true, customFields2: { strings: {} } } };
+}
+
+// Save the business-level BIR blob into the dummy customer record's customFields2.strings.
+async function saveBizDataRecord(biz, guid, birBlob) {
+  const { key, value } = await getOrCreateBizDataRecord(biz);
+  const managerCF2 = buildBIRCustomFields(value, guid, birBlob);
+  const putValue = {
+    name:            value.name            !== undefined ? value.name            : BIZ_DATA_RECORD_NAME,
+    code:            value.code            !== undefined ? value.code            : null,
+    creditLimit:     value.creditLimit     !== undefined ? value.creditLimit     : 0,
+    currency:        value.currency        !== undefined ? value.currency        : null,
+    billingAddress:  value.billingAddress  !== undefined ? value.billingAddress  : null,
+    deliveryAddress: value.deliveryAddress !== undefined ? value.deliveryAddress : null,
+    email:           value.email           !== undefined ? value.email           : null,
+    division:        value.division        !== undefined ? value.division        : null,
+    controlAccount:  value.controlAccount  !== undefined ? value.controlAccount  : null,
+    hasDefaultDueDateDays: value.hasDefaultDueDateDays || false,
+    defaultDueDateDays:    value.defaultDueDateDays    !== undefined ? value.defaultDueDateDays : null,
+    hasDefaultHourlyRate:  value.hasDefaultHourlyRate  || false,
+    defaultHourlyRate:     value.defaultHourlyRate     !== undefined ? value.defaultHourlyRate  : 0,
+    inactive:              true,
+    customFields:          value.customFields          !== undefined ? value.customFields : null,
+    customFields2:         managerCF2,
+    hasDefaultBillingAddress:  value.hasDefaultBillingAddress  || false,
+    defaultBillingAddress:     value.defaultBillingAddress     !== undefined ? value.defaultBillingAddress  : null,
+    hasDefaultDeliveryAddress: value.hasDefaultDeliveryAddress || false,
+    defaultDeliveryAddress:    value.defaultDeliveryAddress    !== undefined ? value.defaultDeliveryAddress : null,
+  };
+  await apiRequest('PUT', '/api4/customer', { business: biz, key, value: putValue });
+  return managerCF2;
+}
+
 // Read a specific mapping from a business-details model
 function readMapping(model, type) {
   const guid = MAPPING_GUIDS[type];
@@ -295,8 +353,8 @@ const PARTY_GUIDS = {
 // Load business BIR setup from Manager and return a plain object.
 async function loadSetup(biz) {
   try {
-    const [model, guids] = await Promise.all([loadBizDetails(biz), ensureBIRFields(biz)]);
-    const rawCF = model.customFields || {};
+    const [model, guids, bizRec] = await Promise.all([loadBizDetails(biz), ensureBIRFields(biz), getOrCreateBizDataRecord(biz)]);
+    const rawCF = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
     const cf    = parseBIRBlob(rawCF, guids && guids.biz, 'b1r00001-');
     const cls   = cf[BIZ_GUIDS.classification] || '';
     const isInd = cls === 'Individual';
@@ -344,6 +402,7 @@ async function loadPartyBIR(biz, partyType) {
     const result = {};
     all.forEach(it => {
       const rec   = it.item || {};
+      if ((rec.name || rec.Name) === BIZ_DATA_RECORD_NAME) return;
       const rawCF = (rec.customFields2 && rec.customFields2.strings) || rec.customFields || {};
       const cf    = parseBIRBlob(rawCF, partyGuid, 'b1r00002-');
       result[it.key] = {
