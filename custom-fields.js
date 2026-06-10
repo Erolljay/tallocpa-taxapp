@@ -315,15 +315,15 @@
       try {
         if (!birGuids) birGuids = await ensureBIRFields(business);
         if (!birGuids || !birGuids.biz) throw new Error('BIR custom field not ready');
-        var existingCF = Object.assign({}, (currentModel || {}).customFields || {});
+        var managerCF2 = buildBIRCustomFields(currentModel, birGuids.biz, birBlob);
         existingCF[birGuids.biz] = JSON.stringify(birBlob);
         var bizValue = {
           name:          (currentModel || {}).name    || null,
           address:       (currentModel || {}).address || null,
-          customFields: existingCF,
+          customFields: managerCF2,
         };
         await apiRequest('PUT', `/api4/business-details?business=${encodeURIComponent(business)}`, { value: bizValue });
-        currentModel = Object.assign({}, currentModel || {}, { customFields: existingCF });
+        currentModel = Object.assign({}, currentModel || {}, { customFields: managerCF2 });
         managerOk = true;
       } catch(err) {
         console.warn('business-details PUT failed:', err.message);
