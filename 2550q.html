@@ -138,7 +138,8 @@ async function fetchManagerTaxCodes(biz) {
   return items.map(row => {
     const data = row?.item || row?.value || row || {};
     const name = data.Name || data.name || data.Code || data.code || '';
-    return { key: row?.key || row?.Key || data.key || '', name: name || `(unnamed: ${row?.key || ''})` };
+    const rate = Number(data.rate ?? (Array.isArray(data.rates) ? data.rates[0] : 0)) || 0;
+    return { key: row?.key || row?.Key || data.key || '', name: name || `(unnamed: ${row?.key || ''})`, rate };
   });
 }
 
@@ -169,7 +170,8 @@ function saveMappingOverrides(biz, overrides) {
   localStorage.setItem(overridesStorageKey(biz), JSON.stringify(overrides));
 }
 
-// Final vm = auto-matched mapping with any saved overrides applied on top
+// Final vm = auto-matched mapping with any saved overrides applied on top.
+// Also returns rateByKey: Manager tax code key -> rate (%) as configured in Manager.
 async function getVatMapping(biz) {
   const taxCodes = await fetchManagerTaxCodes(biz);
   const vm = autoMatchVatMapping(taxCodes);
@@ -177,7 +179,31 @@ async function getVatMapping(biz) {
   for (const [catKey, tcKey] of Object.entries(overrides)) {
     if (tcKey) vm[catKey] = tcKey; else delete vm[catKey];
   }
-  return vm;
+  const rateByKey = {};
+  for (const tc of taxCodes) rateByKey[tc.key] = tc.rate;
+  return { vm, rateByKey };
+}
+
+// Compute net (tax-exclusive) amount and tax amount for an invoice line.
+function lineAmounts(item, line, rateByKey) {
+  const qty       = Number(line?.qty ?? 1);
+  const unitPrice = Number(line?.salesUnitPrice ?? line?.purchaseUnitPrice ?? line?.unitPrice ?? 0);
+  let gross = qty * unitPrice;
+  if (line?.discountPercentage) gross *= (1 - Number(line.discountPercentage) / 100);
+  gross -= Number(line?.discountAmount || 0);
+
+  const tcKey = line?.taxCode || line?.TaxCode || '';
+  const rate  = Number(rateByKey?.[tcKey] ?? 0);
+  const includesTax = !!item?.amountsIncludeTax;
+
+  let net, tax;
+  if (rate) {
+    if (includesTax) { net = gross / (1 + rate / 100); tax = gross - net; }
+    else             { net = gross; tax = gross * rate / 100; }
+  } else {
+    net = gross; tax = 0;
+  }
+  return { net: Math.abs(net), tax: Math.abs(tax), gross: Math.abs(gross) };
 }
 
 // ── TAX CODES TAB ────────────────────────────────────────────
@@ -323,7 +349,7 @@ async function generate() {
   output.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions from Manager…</span></div>`;
 
   try {
-    const vm = await getVatMapping(biz);
+    const { vm, rateByKey } = await getVatMapping(biz);
     // Fetch invoices + receipts in parallel
     const [salesItems, purchItems, receiptItems] = await Promise.all([
       fetchAllBatch('/api4/sales-invoice-batch',    biz),
@@ -331,9 +357,9 @@ async function generate() {
       fetchAllBatch('/api4/receipt-batch',          biz),
     ]);
 
-    const sales    = salesItems.filter(({ item }) => inRange(item?.Date, start, end));
-    const purch    = purchItems.filter(({ item }) => inRange(item?.Date, start, end));
-    const receipts = receiptItems.filter(({ item }) => inRange(item?.Date, start, end));
+    const sales    = salesItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+    const purch    = purchItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+    const receipts = receiptItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
 
     const custMap = await loadPartyBIR(biz, 'customer');
 
@@ -341,22 +367,23 @@ async function generate() {
     let vatableSales = 0, zeroRated = 0, exemptSales = 0, outputTax = 0;
     const govtWVRows = [];
     for (const { item } of sales) {
-      for (const line of (item?.Lines || [])) {
-        const tc  = line?.TaxCode || '';
-        const amt = Math.abs(Number(line?.Amount || 0));
-        const tax = Math.abs(Number(line?.Tax || 0));
-        if (tc && tc === vm.sales_taxable)     { vatableSales += amt; outputTax += tax || amt * 0.12; }
-        else if (tc && tc === vm.sales_zero)   { zeroRated    += amt; }
-        else if (tc && tc === vm.sales_exempt) { exemptSales  += amt; }
-        else if (tc && (tc === vm.govt_wv012 || tc === vm.govt_wv022)) {
-          const custKey  = item?.Customer || '';
+      for (const line of (item?.lines || item?.Lines || [])) {
+        const tc = line?.taxCode || line?.TaxCode || '';
+        if (!tc) continue;
+        const { net, tax, gross } = lineAmounts(item, line, rateByKey);
+        if (tc === vm.sales_taxable)     { vatableSales += net; outputTax += tax; }
+        else if (tc === vm.sales_zero)   { zeroRated    += net; }
+        else if (tc === vm.sales_exempt) { exemptSales  += net; }
+        else if (tc === vm.govt_wv012 || tc === vm.govt_wv022) {
+          const custKey  = item?.customer || item?.Customer || '';
           const cd       = custMap[custKey] || {};
-          const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || item?.CustomerName || custKey;
+          const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || custKey;
+          const issued   = item?.issueDate || item?.Date;
           govtWVRows.push({
-            period:  item.Date ? new Date(item.Date).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
+            period:  issued ? new Date(issued).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
             name:    custName,
-            income:  amt / 0.05,
-            cwt:     amt,
+            income:  gross / 0.05,
+            cwt:     gross,
             type:    tc === vm.govt_wv012 ? 'WV012' : 'WV022',
           });
         }
@@ -367,15 +394,15 @@ async function generate() {
     let capGoods = 0, otherGoods = 0, services = 0, purZero = 0, purExempt = 0;
     let capTax = 0, otherTax = 0, svcTax = 0;
     for (const { item } of purch) {
-      for (const line of (item?.Lines || [])) {
-        const tc  = line?.TaxCode || '';
-        const amt = Math.abs(Number(line?.Amount || 0));
-        const tax = Math.abs(Number(line?.Tax || 0));
-        if (tc && tc === vm.purch_capital)      { capGoods   += amt; capTax   += tax || amt * 0.12; }
-        else if (tc && tc === vm.purch_other)   { otherGoods += amt; otherTax += tax || amt * 0.12; }
-        else if (tc && tc === vm.purch_services){ services   += amt; svcTax   += tax || amt * 0.12; }
-        else if (tc && tc === vm.purch_zero)    { purZero    += amt; }
-        else if (tc && tc === vm.purch_exempt)  { purExempt  += amt; }
+      for (const line of (item?.lines || item?.Lines || [])) {
+        const tc = line?.taxCode || line?.TaxCode || '';
+        if (!tc) continue;
+        const { net, tax } = lineAmounts(item, line, rateByKey);
+        if (tc === vm.purch_capital)      { capGoods   += net; capTax   += tax; }
+        else if (tc === vm.purch_other)   { otherGoods += net; otherTax += tax; }
+        else if (tc === vm.purch_services){ services   += net; svcTax   += tax; }
+        else if (tc === vm.purch_zero)    { purZero    += net; }
+        else if (tc === vm.purch_exempt)  { purExempt  += net; }
       }
     }
 
@@ -384,19 +411,20 @@ async function generate() {
     const sched3Rows   = [...govtWVRows];
 
     for (const { item } of receipts) {
-      for (const line of (item?.Lines || [])) {
-        const acctName = line?.AccountName || line?.Account || '';
+      for (const line of (item?.lines || item?.Lines || [])) {
+        const acctName = line?.accountName || line?.AccountName || line?.account || line?.Account || '';
         const matched  = cwtAccounts.find(c => c.accountName && acctName.toLowerCase().includes(c.accountName.toLowerCase()));
         if (!matched) continue;
-        const amt = Math.abs(Number(line?.Amount || 0));
+        const amt = Math.abs(Number(line?.amount ?? line?.Amount ?? 0));
         if (amt === 0) continue;
-        const custKey  = item?.Customer || '';
+        const custKey  = item?.customer || item?.Customer || '';
         const cd       = custMap[custKey] || {};
-        const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || item?.CustomerName || custKey;
+        const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || custKey;
+        const issued   = item?.issueDate || item?.Date;
         sched3Rows.push({
-          period:  item.Date ? new Date(item.Date).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
+          period:  issued ? new Date(issued).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
           name:    custName,
-          income:  Math.abs(Number(item?.AmountDue || item?.Total || 0)),
+          income:  Math.abs(Number(item?.amountDue ?? item?.AmountDue ?? item?.total ?? item?.Total ?? 0)),
           cwt:     amt,
           type:    matched.type,
         });
