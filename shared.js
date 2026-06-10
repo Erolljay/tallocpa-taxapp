@@ -136,8 +136,7 @@ async function ensureBIRFields(biz) {
 
   let items = [];
   try {
-    const res = await apiRequest('GET', `/api4/text-custom-field-batch?business=${encodeURIComponent(biz)}`);
-    items = (res && res.items) ? res.items : [];
+    items = await fetchAllBatch('/api4/text-custom-field-batch', biz);
   } catch(e) {
     console.warn('ensureBIRFields: batch fetch failed:', e.message);
   }
@@ -169,8 +168,8 @@ async function ensureBIRFields(biz) {
         guids[def.slot] = typeof created === 'string' ? created : (created.key || null);
       }
       if (!guids[def.slot]) {
-        const re = await apiRequest('GET', `/api4/text-custom-field-batch?business=${encodeURIComponent(biz)}`);
-        const found = ((re && re.items) || []).find(i => ((i.item || {}).name || '') === def.name);
+        const re = await fetchAllBatch('/api4/text-custom-field-batch', biz);
+        const found = re.find(i => ((i.item || {}).name || '') === def.name);
         if (found) guids[def.slot] = found.key;
       }
     } catch(e) {
