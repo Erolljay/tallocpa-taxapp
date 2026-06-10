@@ -12,8 +12,9 @@ const TAX_CODE_TEMPLATES = [
 
   // ── GROUP 1A: VALUE ADDED TAX ─────────────────────────────
   { Name: 'Output VAT 12%',                  Label: 'Standard VATable sales',                          birRate: 12.0, managerRate: 12.0, group: 'VAT' },
-  { Name: 'Input VAT 12%',                   Label: 'Standard VATable purchases',                      birRate: 12.0, managerRate: 12.0, group: 'VAT' },
   { Name: 'Input VAT 12% (Capital Goods)',   Label: 'Capital expenditure purchases',                   birRate: 12.0, managerRate: 12.0, group: 'VAT' },
+  { Name: 'Input VAT 12% (Other Goods)',     Label: 'Non-capital goods purchases',                     birRate: 12.0, managerRate: 12.0, group: 'VAT' },
+  { Name: 'Input VAT 12% (Services)',        Label: 'Services purchases',                              birRate: 12.0, managerRate: 12.0, group: 'VAT' },
   { Name: 'Zero-Rated Sales',                Label: 'Export / PEZA / zero-rated',                      birRate: 0,    managerRate: 0,    group: 'VAT' },
   { Name: 'VAT Exempt Sales',                Label: 'Sales exempt from VAT',                           birRate: 0,    managerRate: 0,    group: 'VAT' },
   { Name: 'Zero-Rated Purchases',            Label: 'Zero-rated purchase inputs',                      birRate: 0,    managerRate: 0,    group: 'VAT' },
@@ -111,6 +112,6 @@ const VAT_CATEGORIES = [
   { key: 'purch_services', label: 'Input VAT 12% – Services',          side: 'purchase', rate: 12.0 },
   { key: 'purch_zero',     label: 'Zero-Rated Purchases',              side: 'purchase', rate: 0    },
   { key: 'purch_exempt',   label: 'VAT Exempt Purchases',              side: 'purchase', rate: 0    },
-  { key: 'govt_wv012',     label: 'Govt Withholding VAT – Goods (WV012)',    side: 'purchase', rate: 5.0 },
-  { key: 'govt_wv022',     label: 'Govt Withholding VAT – Services (WV022)', side: 'purchase', rate: 5.0 },
+  { key: 'govt_wv012',     label: 'Govt Withholding VAT – Goods (WV012)',    side: 'sales', rate: 5.0 },
+  { key: 'govt_wv022',     label: 'Govt Withholding VAT – Services (WV022)', side: 'sales', rate: 5.0 },
 ];
