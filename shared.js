@@ -239,7 +239,7 @@ async function saveBizDetails(biz, model) {
 // ── BUSINESS-LEVEL BIR DATA STORE ────────────────────────────
 // PUT /api4/business-details does not persist customFields2 via this bridge
 // (confirmed Manager platform limitation). As a workaround, business-level
-// BIR data (TIN, RDO code, address, etc.) is stored on a dedicated, inactive
+// BIR data (TIN, RDO code, address, etc.) is stored on a dedicated, active but hidden
 // "dummy" customer record, identified by name.
 const BIZ_DATA_RECORD_NAME = '__BIR_BUSINESS_DATA__';
 
@@ -256,13 +256,13 @@ async function getOrCreateBizDataRecord(biz) {
   const created = await apiRequest('POST', '/api4/customer', {
     value: {
       name: BIZ_DATA_RECORD_NAME,
-      inactive: true,
+      inactive: false,
       customFields2: { strings: {} },
     },
   });
   const key = (created && (created.key || created.Key)) || (typeof created === 'string' ? created : null);
   if (!key) throw new Error('Could not create business data record');
-  return { key, value: { name: BIZ_DATA_RECORD_NAME, inactive: true, customFields2: { strings: {} } } };
+  return { key, value: { name: BIZ_DATA_RECORD_NAME, inactive: false, customFields2: { strings: {} } } };
 }
 
 // Save the business-level BIR blob into the dummy customer record's customFields2.strings.
@@ -283,7 +283,7 @@ async function saveBizDataRecord(biz, guid, birBlob) {
     defaultDueDateDays:    value.defaultDueDateDays    !== undefined ? value.defaultDueDateDays : null,
     hasDefaultHourlyRate:  value.hasDefaultHourlyRate  || false,
     defaultHourlyRate:     value.defaultHourlyRate     !== undefined ? value.defaultHourlyRate  : 0,
-    inactive:              true,
+    inactive:              false,
     customFields:          value.customFields          !== undefined ? value.customFields : null,
     customFields2:         managerCF2,
     hasDefaultBillingAddress:  value.hasDefaultBillingAddress  || false,
