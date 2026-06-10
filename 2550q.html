@@ -163,8 +163,11 @@ async function generate() {
     const purch    = purchItems.filter(({ item }) => inRange(item?.Date, start, end));
     const receipts = receiptItems.filter(({ item }) => inRange(item?.Date, start, end));
 
+    const custMap = await loadPartyBIR(biz, 'customer');
+
     // ── PART IV: SALES ────────────────────────────────────────
     let vatableSales = 0, zeroRated = 0, exemptSales = 0, outputTax = 0;
+    const govtWVRows = [];
     for (const { item } of sales) {
       for (const line of (item?.Lines || [])) {
         const tc  = line?.TaxCode || '';
@@ -173,6 +176,18 @@ async function generate() {
         if (tc && tc === vm.sales_taxable)     { vatableSales += amt; outputTax += tax || amt * 0.12; }
         else if (tc && tc === vm.sales_zero)   { zeroRated    += amt; }
         else if (tc && tc === vm.sales_exempt) { exemptSales  += amt; }
+        else if (tc && (tc === vm.govt_wv012 || tc === vm.govt_wv022)) {
+          const custKey  = item?.Customer || '';
+          const cd       = custMap[custKey] || {};
+          const custName = cd.companyName || [cd.lastName, cd.firstName].filter(Boolean).join(', ') || item?.CustomerName || custKey;
+          govtWVRows.push({
+            period:  item.Date ? new Date(item.Date).toLocaleDateString('en-PH', { month:'short', year:'numeric' }) : '',
+            name:    custName,
+            income:  amt / 0.05,
+            cwt:     amt,
+            type:    tc === vm.govt_wv012 ? 'WV012' : 'WV022',
+          });
+        }
       }
     }
 
@@ -194,8 +209,7 @@ async function generate() {
 
     // ── SCHEDULE 3: CREDITABLE VAT WITHHELD ───────────────────
     const cwtAccounts  = vm.cwtAccounts || [];
-    const sched3Rows   = [];
-    const custMap      = await loadPartyBIR(biz, 'customer');
+    const sched3Rows   = [...govtWVRows];
 
     for (const { item } of receipts) {
       for (const line of (item?.Lines || [])) {
