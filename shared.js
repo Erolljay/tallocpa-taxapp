@@ -199,14 +199,6 @@ async function ensureBIRFields(biz) {
   return guids;
 }
 
-  // customer and supplier share the same 'BIR Party Data' definition
-  guids.customer = guids.party;
-  guids.supplier = guids.party;
-
-  _birGuidCache[biz] = guids;
-  return guids;
-}
-
 // Parse the BIR JSON blob from a Manager record's customFields2.strings using the real GUID.
 function parseBIRBlob(managerCF, guid) {
   if (!guid || !managerCF) return {};
