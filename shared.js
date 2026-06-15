@@ -485,6 +485,48 @@ function saveMappingOverrides(biz, overrides) {
   localStorage.setItem(overridesStorageKey(biz), JSON.stringify(overrides));
 }
 
+// ── EWT TAX CODE MAPPING (ATC -> Manager tax code) ───────────
+// Shared by 1601EQ, 0619E, 2307, QAP. Requires ATC_MASTER from
+// ewt-helpers.js to be loaded on the page.
+function ewtOverridesStorageKey(biz) { return `ewt_taxcode_overrides_${biz}`; }
+
+function getEwtMappingOverrides(biz) {
+  try { return JSON.parse(localStorage.getItem(ewtOverridesStorageKey(biz))) || {}; }
+  catch { return {}; }
+}
+
+function saveEwtMappingOverrides(biz, overrides) {
+  localStorage.setItem(ewtOverridesStorageKey(biz), JSON.stringify(overrides));
+}
+
+// Auto-match Manager tax codes to BIR ATC codes by name (exact or
+// substring match against ATC_MASTER keys), then apply saved overrides.
+// Returns { tcKeyToAtc: { [managerTaxCodeKey]: {atc, desc, rate} }, atcToTcKey, taxCodes }
+async function getEwtTcMap(biz) {
+  const taxCodes = await fetchManagerTaxCodes(biz);
+  const overrides = getEwtMappingOverrides(biz);
+  const atcToTcKey = {};
+
+  // Auto-match: tax code name contains an ATC code (e.g. "WC158")
+  for (const atc of Object.keys(ATC_MASTER || {})) {
+    const found = taxCodes.find(tc => (tc.name || '').toUpperCase().includes(atc));
+    if (found) atcToTcKey[atc] = found.key;
+  }
+  // Apply overrides on top
+  for (const [atc, tcKey] of Object.entries(overrides)) {
+    if (tcKey) atcToTcKey[atc] = tcKey; else delete atcToTcKey[atc];
+  }
+
+  const tcKeyToAtc = {};
+  for (const [atc, tcKey] of Object.entries(atcToTcKey)) {
+    if (!tcKey) continue;
+    const info = ATC_MASTER[atc];
+    const tc = taxCodes.find(t => t.key === tcKey);
+    tcKeyToAtc[tcKey] = { atc, desc: info?.desc || atc, rate: Number(tc?.rate ?? info?.rate ?? 0) };
+  }
+  return { tcKeyToAtc, atcToTcKey, taxCodes };
+}
+
 // Final vm = auto-matched mapping with any saved overrides applied on top.
 async function getVatMapping(biz) {
   const taxCodes = await fetchManagerTaxCodes(biz);
