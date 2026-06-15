@@ -152,6 +152,22 @@ async function generateSL(type, biz, setup, outputEl) {
 }
 
 // ── BUILD ROWS ────────────────────────────────────────────────
+// Manager's API returns line items under either `Lines` or `lines`, and the
+// tax code reference as either a plain key string or an object {key, name}.
+function getLines(item) {
+  return item?.Lines || item?.lines || [];
+}
+function getLineTaxCodeKey(line) {
+  const tc = line?.TaxCode ?? line?.taxCode ?? '';
+  return (tc && typeof tc === 'object') ? (tc.key || tc.Key || '') : (tc || '');
+}
+function getLineAmount(line) {
+  return Math.abs(Number(line?.Amount ?? line?.amount ?? 0));
+}
+function getLineTax(line) {
+  return Math.abs(Number(line?.Tax ?? line?.tax ?? 0));
+}
+
 async function buildSLSRows(biz, start, end, vm) {
   const [invItems, receiptItems, custMap] = await Promise.all([
     fetchAllBatch('/api4/sales-invoice-batch', biz),
@@ -159,7 +175,7 @@ async function buildSLSRows(biz, start, end, vm) {
     loadPartyBIR(biz, 'customer'),
   ]);
   // Include cash-sale receipts that carry a VAT tax code directly on their lines
-  const items = [...invItems, ...receiptItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
+  const items = [...invItems, ...receiptItems.filter(({ item }) => getLines(item).some(l => getLineTaxCodeKey(l)))];
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
@@ -169,10 +185,10 @@ async function buildSLSRows(biz, start, end, vm) {
     const name = cd.companyName || [cd.lastName, cd.firstName, cd.middleName].filter(Boolean).join(', ') || item?.CustomerName || ck;
 
     let taxable = 0, zeroRated = 0, exempt = 0, outputVAT = 0;
-    for (const line of (item?.Lines || [])) {
-      const tc  = line?.TaxCode || '';
-      const amt = Math.abs(Number(line?.Amount || 0));
-      const tax = Math.abs(Number(line?.Tax || 0));
+    for (const line of getLines(item)) {
+      const tc  = getLineTaxCodeKey(line);
+      const amt = getLineAmount(line);
+      const tax = getLineTax(line);
       if (tc && tc === vm.sales_taxable)      { taxable   += amt; outputVAT += tax || amt * 0.12; }
       else if (tc && tc === vm.sales_zero)    { zeroRated += amt; }
       else if (tc && tc === vm.sales_exempt)  { exempt    += amt; }
@@ -198,7 +214,7 @@ async function buildSLPRows(biz, start, end, vm) {
     loadPartyBIR(biz, 'supplier'),
   ]);
   // Include cash-purchase/expense payments that carry a VAT tax code directly on their lines
-  const items = [...invItems, ...paymentItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
+  const items = [...invItems, ...paymentItems.filter(({ item }) => getLines(item).some(l => getLineTaxCodeKey(l)))];
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
@@ -208,10 +224,10 @@ async function buildSLPRows(biz, start, end, vm) {
     const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sk;
 
     let capGoods = 0, otherGoods = 0, services = 0, zeroRated = 0, exempt = 0, inputVAT = 0;
-    for (const line of (item?.Lines || [])) {
-      const tc  = line?.TaxCode || '';
-      const amt = Math.abs(Number(line?.Amount || 0));
-      const tax = Math.abs(Number(line?.Tax || 0));
+    for (const line of getLines(item)) {
+      const tc  = getLineTaxCodeKey(line);
+      const amt = getLineAmount(line);
+      const tax = getLineTax(line);
       if (tc && tc === vm.purch_capital)      { capGoods  += amt; inputVAT += tax || amt * 0.12; }
       else if (tc && tc === vm.purch_other)   { otherGoods += amt; inputVAT += tax || amt * 0.12; }
       else if (tc && tc === vm.purch_services){ services   += amt; inputVAT += tax || amt * 0.12; }
