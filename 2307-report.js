@@ -46,11 +46,23 @@ async function init2307Report() {
     .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''))
     .map(([key, s]) => `<option value="${escHtml(key)}">${escHtml(s.name)}</option>`).join('');
 
+  const curM = now.getMonth() + 1;
+
   filterEl.innerHTML = `
     <div class="filter-bar">
-      <label>Quarter</label>
+      <label>Frequency</label>
+      <select id="f2307-freq">
+        <option value="quarterly">Quarterly</option>
+        <option value="monthly">Monthly</option>
+        <option value="transaction">Per Transaction</option>
+      </select>
+      <label id="f2307-quarter-lbl">Quarter</label>
       <select id="f2307-quarter">
         ${[1,2,3,4].map(q=>`<option value="${q}"${q===curQ?' selected':''}>${quarterLabel(q)}</option>`).join('')}
+      </select>
+      <label id="f2307-month-lbl" style="display:none;">Month</label>
+      <select id="f2307-month" style="display:none;">
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<option value="${m}"${m===curM?' selected':''}>${monthName(m)}</option>`).join('')}
       </select>
       <label>Year</label>
       <select id="f2307-year">
@@ -69,6 +81,15 @@ async function init2307Report() {
       Business: <strong>${escHtml(biz)}</strong> &nbsp;|&nbsp;
       TIN: <strong>${escHtml(setup.tin||'—')}</strong>
     </div>`;
+
+  document.getElementById('f2307-freq').addEventListener('change', e => {
+    const freq = e.target.value;
+    const showMonth = freq === 'monthly';
+    document.getElementById('f2307-month-lbl').style.display = showMonth ? '' : 'none';
+    document.getElementById('f2307-month').style.display = showMonth ? '' : 'none';
+    document.getElementById('f2307-quarter-lbl').style.display = showMonth ? 'none' : '';
+    document.getElementById('f2307-quarter').style.display = showMonth ? 'none' : '';
+  });
 
   document.getElementById('f2307-gen').addEventListener('click', () => generate2307(biz, setup, outputEl));
 }
@@ -122,15 +143,88 @@ async function buildEWTBySupplier(biz, start, end) {
   return bySupplier;
 }
 
+// Build one EWT row-set per individual transaction (purchase invoice / payment).
+// Returns array of { suppKey, date, ref, atcMap } — atcMap has the same shape
+// as buildEWTBySupplier's per-supplier map, but for a single transaction.
+async function buildEWTByTransaction(biz, start, end) {
+  const customAtcMap = loadAtcMapping();
+  const [invItems, paymentItems, { tcKeyToAtc, taxCodes }] = await Promise.all([
+    fetchAllBatch('/api4/purchase-invoice-batch', biz),
+    fetchAllBatch('/api4/payment-batch', biz),
+    getEwtTcMap(biz),
+  ]);
+  const tcNameByKey = {};
+  const rateByKey = {};
+  taxCodes.forEach(tc => { tcNameByKey[tc.key] = tc.name; rateByKey[tc.key] = tc.rate; });
+
+  const items = [...invItems, ...paymentItems];
+  const out = [];
+
+  for (const { item } of items) {
+    const date = item?.issueDate || item?.Date;
+    if (!inRange(date, start, end)) continue;
+    const ewtLines = extractEWT(item, customAtcMap, tcNameByKey, rateByKey, tcKeyToAtc);
+    if (!ewtLines.length) continue;
+
+    const suppKey = item?.supplier || item?.Supplier || '';
+    if (!suppKey) continue;
+    const ref = item?.reference || item?.Reference || item?.invoiceNumber || item?.InvoiceNumber || '';
+    const mIdx = monthInQuarter(date);
+
+    const atcMap = {};
+    ewtLines.forEach(line => {
+      const months = [{ base: 0, ewt: 0 }, { base: 0, ewt: 0 }, { base: 0, ewt: 0 }];
+      months[mIdx] = { base: line.base, ewt: line.ewt };
+      atcMap[line.atc] = { atc: line.atc, desc: line.desc, rate: line.rate, months, totalBase: line.base, totalEwt: line.ewt };
+    });
+
+    out.push({ suppKey, date, ref, atcMap });
+  }
+
+  return out;
+}
+
 async function generate2307(biz, setup, outputEl) {
   outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions…</span></div>`;
 
-  const q    = parseInt(document.getElementById('f2307-quarter').value, 10);
+  const freq = document.getElementById('f2307-freq').value;
   const year = parseInt(document.getElementById('f2307-year').value, 10);
   const suppSel = document.getElementById('f2307-supplier').value;
-  const { start, end } = getPeriodDates('quarterly', q, year);
+
+  let start, end, periodLabel;
+  if (freq === 'monthly') {
+    const month = parseInt(document.getElementById('f2307-month').value, 10);
+    ({ start, end } = getPeriodDates('monthly', month, year));
+    periodLabel = `${monthName(month)} ${year}`;
+  } else {
+    const q = parseInt(document.getElementById('f2307-quarter').value, 10);
+    ({ start, end } = getPeriodDates('quarterly', q, year));
+    periodLabel = `${quarterLabel(q)} ${year}`;
+  }
 
   try {
+    if (freq === 'transaction') {
+      let txns = await buildEWTByTransaction(biz, start, end);
+      if (suppSel !== '__all__') txns = txns.filter(t => t.suppKey === suppSel);
+      txns.sort((a, b) => new Date(a.date) - new Date(b.date) || (_f2307SuppMap[a.suppKey]?.name || '').localeCompare(_f2307SuppMap[b.suppKey]?.name || ''));
+
+      if (!txns.length) {
+        outputEl.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>No EWT Transactions Found</h3>
+          <p>No purchase invoices or payments with EWT tax codes matched for ${escHtml(periodLabel)}${suppSel!=='__all__' ? ' for the selected supplier' : ''}.</p></div>`;
+        document.getElementById('f2307-print').style.display = 'none';
+        return;
+      }
+
+      outputEl.innerHTML = txns.map(t => {
+        const d = new Date(t.date);
+        const txnLabel = t.ref ? `${fmtDateMDY(d)} — ${escHtml(t.ref)}` : fmtDateMDY(d);
+        return renderCertificate(t.suppKey, t.atcMap, d, d, setup, txnLabel);
+      }).join('');
+
+      document.getElementById('f2307-print').style.display = '';
+      return;
+    }
+
     const bySupplier = await buildEWTBySupplier(biz, start, end);
 
     let supplierKeys = Object.keys(bySupplier);
@@ -140,14 +234,13 @@ async function generate2307(biz, setup, outputEl) {
 
     if (!supplierKeys.length) {
       outputEl.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>No EWT Transactions Found</h3>
-        <p>No purchase invoices or payments with EWT tax codes matched for ${escHtml(quarterLabel(q))} ${year}${suppSel!=='__all__' ? ' for the selected supplier' : ''}.</p></div>`;
+        <p>No purchase invoices or payments with EWT tax codes matched for ${escHtml(periodLabel)}${suppSel!=='__all__' ? ' for the selected supplier' : ''}.</p></div>`;
       document.getElementById('f2307-print').style.display = 'none';
       return;
     }
 
     supplierKeys.sort((a, b) => (_f2307SuppMap[a]?.name || a).localeCompare(_f2307SuppMap[b]?.name || b));
 
-    const periodLabel = `${quarterLabel(q)} ${year}`;
     outputEl.innerHTML = supplierKeys.map(sk => renderCertificate(sk, bySupplier[sk], start, end, setup, periodLabel)).join('');
 
     document.getElementById('f2307-print').style.display = '';
@@ -193,7 +286,9 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
 
   const fromStr = fmtDateMDY(start);
   const toStr   = fmtDateMDY(end);
-  const genDate = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
+  const repLine = setup.authorizedRepName
+    ? [setup.authorizedRepName, setup.authorizedRepTitle].filter(Boolean).join(' - ')
+    : '';
 
   return `
   <div class="bir-form">
@@ -296,6 +391,7 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
 
     <div class="sig-area">
       <div class="sig-line"></div>
+      ${repLine ? `<strong>${escHtml(repLine)}</strong><br>` : ''}
       Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent<br>
       <span class="sig-sub">(Indicate Title/Designation and TIN)</span>
     </div>
@@ -317,8 +413,7 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
       <div class="bir-cell">Date of Expiry<br><span class="sig-sub">(MM/DD/YYYY)</span></div>
     </div>
 
-    <div class="footer-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph) &nbsp;|&nbsp;
-      Generated by Tallo CPA — ${escHtml(periodLabel)} — ${escHtml(genDate)}</div>
+    <div class="footer-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph)</div>
   </div>`;
 }
 
