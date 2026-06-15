@@ -225,7 +225,7 @@ async function buildSLPRows(biz, start, end, vm, rateByKey) {
       else if (tc === vm.purch_other)   { otherGoods += net; inputVAT += tax; }
       else if (tc === vm.purch_services){ services   += net; inputVAT += tax; }
       else if (tc === vm.purch_zero)    { zeroRated  += net; }
-      else if (tc && tc === vm.purch_exempt)  { exempt     += amt; }
+      else if (tc === vm.purch_exempt)  { exempt     += net; }
     }
     if (capGoods + otherGoods + services + zeroRated + exempt === 0) continue;
     rows.push({
