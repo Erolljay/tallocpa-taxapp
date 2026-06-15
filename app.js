@@ -308,16 +308,30 @@ function getTaxType(group, name) {
   return 0; // output VAT, zero-rated sales, exempt sales
 }
 
+// Build the tax-code value payload for Manager.
+// managerRate === 100 -> "TotalRate" (no Rate; line amount IS the tax amount)
+// managerRate === 0   -> "ZeroRate"  (no Rate)
+// otherwise           -> "CustomRate" with an explicit Rate
+function buildTaxCodeValue(name, group, mgrRate) {
+  var taxType = getTaxType(group, name);
+  if (mgrRate === 100) {
+    return { Name: name, TaxRate: 'TotalRate', Type: 'SingleRate', Component: [{ TaxType: taxType }] };
+  }
+  if (mgrRate === 0) {
+    return { Name: name, TaxRate: 'ZeroRate', Type: 'SingleRate', Component: [{ TaxType: taxType }] };
+  }
+  return { Name: name, TaxRate: 'CustomRate', Type: 'SingleRate', Component: [{ TaxType: taxType, Rate: mgrRate }] };
+}
+
 async function onCreateTaxCode(btn, biz) {
   var name    = btn.dataset.name;
   var mgrRate = parseFloat(btn.dataset.mgrRate);
   var group   = btn.dataset.group || '';
-  var taxType = getTaxType(group, name);
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
     await apiRequest('POST', '/api4/tax-code', {
       business: biz,
-      value: { Name: name, Component: [{ TaxType: taxType, Rate: mgrRate }] }
+      value: buildTaxCodeValue(name, group, mgrRate)
     });
     await loadTaxCodesTab();
   } catch(err) {
@@ -341,10 +355,9 @@ async function onCreateGroupTaxCodes(btn, biz) {
   try {
     for (var i = 0; i < missing.length; i++) {
       var m = missing[i];
-      var taxType = getTaxType(m.group, m.Name);
       await apiRequest('POST', '/api4/tax-code', {
         business: biz,
-        value: { Name: m.Name, Component: [{ TaxType: taxType, Rate: m.managerRate }] }
+        value: buildTaxCodeValue(m.Name, m.group, m.managerRate)
       });
     }
     await loadTaxCodesTab();
