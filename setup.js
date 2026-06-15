@@ -46,12 +46,14 @@ function renderSetup(el) {
       <button class="tab-btn active"  data-tab="info">📋 Business Info</button>
       <button class="tab-btn"         data-tab="pkgs">📦 Install Packages</button>
       <button class="tab-btn"         data-tab="vat">🗂 VAT Mapping</button>
+      <button class="tab-btn"         data-tab="ewt">🗂 EWT Mapping</button>
       <button class="tab-btn"         data-tab="customers">👤 Customers</button>
       <button class="tab-btn"         data-tab="suppliers">🏭 Suppliers</button>
     </div>
     <div id="tab-info"      class="tab-panel active">${renderBusinessInfoTab(setup)}</div>
     <div id="tab-pkgs"      class="tab-panel">${renderPackagesTab(setup)}</div>
     <div id="tab-vat"       class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
+    <div id="tab-ewt"       class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
     <div id="tab-customers" class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
     <div id="tab-suppliers" class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
   `;
@@ -63,6 +65,7 @@ function renderSetup(el) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
     if (tab === 'pkgs')      reRenderPackagesTab();
     if (tab === 'vat')       loadVATMappingTab();
+    if (tab === 'ewt')       loadEwtMappingTab();
     if (tab === 'customers') loadPartyTab('customers');
     if (tab === 'suppliers') loadPartyTab('suppliers');
   });
@@ -472,6 +475,96 @@ function saveVATMapping() {
   mapping.cwtAccounts = cwt;
   saveSetup(App.currentBusiness, { ...existing, vatMapping: mapping });
   showToast('✅ VAT mapping saved.', 'success');
+}
+
+// ── TAB: EWT MAPPING ───────────────────────────────────────────
+// Requires ewt-helpers.js (ATC_MASTER) and shared.js (getEwtTcMap /
+// saveEwtMappingOverrides) to be loaded on this page.
+async function loadEwtMappingTab() {
+  const panel = document.getElementById('tab-ewt');
+  panel.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching tax codes from Manager…</span></div>`;
+  try {
+    const { atcToTcKey, taxCodes } = await getEwtTcMap(App.currentBusiness);
+    _taxCodes = taxCodes;
+
+    panel.innerHTML = `
+      <div class="alert alert-info" style="margin-bottom:14px;">
+        ℹ️ Map each BIR ATC (Expanded Withholding Tax) code to a tax code in Manager.
+        Use <strong>Install</strong> to create the standard tax code if it doesn't exist yet.
+        This affects figures pulled into 1601-EQ, 0619-E, 2307 and QAP.
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#0d1b3e;color:white;">
+              <th style="padding:10px 14px;font-size:11px;width:50%;">BIR ATC Code</th>
+              <th style="padding:10px 14px;font-size:11px;">Tax Code in Manager (${_taxCodes.length} found)</th>
+              <th style="padding:10px 14px;font-size:11px;width:110px;"></th>
+            </tr>
+          </thead>
+          <tbody id="ewt-map-body">
+            ${Object.entries(ATC_MASTER).map(([atc, info]) => ewtMapRow(atc, info, atcToTcKey[atc] || '')).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:14px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" onclick="saveEwtMapping()">💾 Save Mapping</button>
+      </div>`;
+  } catch (err) {
+    panel.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
+  }
+}
+
+function ewtMapRow(atc, info, selectedKey) {
+  const opts = _taxCodes.map(tc =>
+    `<option value="${escHtml(tc.key)}" ${tc.key===selectedKey?'selected':''}>${escHtml(tc.name)}</option>`
+  ).join('');
+  const defaultName = `${atc} - ${info.desc}`;
+  return `<tr style="border-bottom:1px solid #f0f0f0;">
+    <td style="padding:9px 14px;font-size:12px;font-weight:600;color:#0d1b3e;">
+      ${escHtml(atc)} — ${escHtml(info.desc)} <span style="color:#9ca3af;">(${info.rate}%)</span>
+    </td>
+    <td style="padding:6px 14px;">
+      <select class="form-select em-sel" data-atc="${atc}" style="width:100%;">
+        <option value="">— Not mapped —</option>${opts}
+      </select>
+    </td>
+    <td style="padding:6px 10px;">
+      <button class="btn btn-outline btn-sm"
+        onclick="installEwtTaxCode('${atc}','${escHtml(defaultName)}',${info.rate})">✦ Install</button>
+    </td>
+  </tr>`;
+}
+
+async function installEwtTaxCode(atc, name, rate) {
+  const btn = event.target; btn.disabled=true; btn.textContent='⏳…';
+  try {
+    const newKey = crypto.randomUUID();
+    await apiRequest('PUT', '/api4/tax-code', {
+      key: newKey,
+      value: { Name: name, Rate: rate },
+      business: App.currentBusiness,
+    });
+    const items = await fetchTaxCodes(App.currentBusiness);
+    _taxCodes = items.map(r => ({ key: String(r.key||r.Key||''), name: r.Name||r.name||r.key||'' }));
+    const sel = document.querySelector(`.em-sel[data-atc="${atc}"]`);
+    if (sel) {
+      const opts = _taxCodes.map(tc =>
+        `<option value="${escHtml(tc.key)}" ${tc.key===newKey?'selected':''}>${escHtml(tc.name)}</option>`
+      ).join('');
+      sel.innerHTML = `<option value="">— Not mapped —</option>${opts}`;
+      sel.value = newKey;
+    }
+    showToast(`✅ "${name}" installed.`, 'success');
+  } catch (err) { showToast(`❌ ${err.message}`, 'err'); }
+  btn.disabled=false; btn.textContent='✦ Install';
+}
+
+function saveEwtMapping() {
+  const overrides = {};
+  document.querySelectorAll('.em-sel').forEach(sel => { overrides[sel.dataset.atc] = sel.value; });
+  saveEwtMappingOverrides(App.currentBusiness, overrides);
+  showToast('✅ EWT mapping saved.', 'success');
 }
 
 // ── FETCH PARTY LIST (uses list endpoint — returns Name directly) ──
