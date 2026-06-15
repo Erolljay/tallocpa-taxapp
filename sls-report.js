@@ -89,9 +89,27 @@ async function initSLReport(type) {
     if (tab === partyTab) {
       const container = document.getElementById(`tab-${partyTab}`);
       if (!partyController) partyController = CF.mountParty(container, partyType);
-      partyController.refresh();
+      partyController.refresh().then(() => filterPartyTabToPeriod(container));
     }
   });
+}
+
+// Hide rows for customers/suppliers that have no transactions in the
+// currently-generated SLS/SLP period, so the tab only shows the
+// parties relevant to that period's report.
+function filterPartyTabToPeriod(container) {
+  if (!_slRows.length) return;
+  const keys = new Set(_slRows.map(r => r.partyKey).filter(Boolean));
+  if (!keys.size) return;
+  let shown = 0, total = 0;
+  container.querySelectorAll('tbody tr[data-key]').forEach(tr => {
+    total++;
+    const visible = keys.has(tr.dataset.key);
+    tr.style.display = visible ? '' : 'none';
+    if (visible) shown++;
+  });
+  const countEl = container.querySelector('[id$="-count"]');
+  if (countEl) countEl.textContent = `${shown} of ${total} records have transactions in the selected period`;
 }
 
 async function generateSL(type, biz, setup, outputEl) {
@@ -105,7 +123,7 @@ async function generateSL(type, biz, setup, outputEl) {
     : parseInt(document.getElementById('sl-quarter').value, 10);
 
   const { start, end } = getPeriodDates(ptype, period, year);
-  const vm = setup.vatMapping || {};
+  const { vm } = await getVatMapping(biz);
 
   try {
     const rows = isSLS
@@ -135,10 +153,13 @@ async function generateSL(type, biz, setup, outputEl) {
 
 // ── BUILD ROWS ────────────────────────────────────────────────
 async function buildSLSRows(biz, start, end, vm) {
-  const [items, custMap] = await Promise.all([
+  const [invItems, receiptItems, custMap] = await Promise.all([
     fetchAllBatch('/api4/sales-invoice-batch', biz),
+    fetchAllBatch('/api4/receipt-batch', biz),
     loadPartyBIR(biz, 'customer'),
   ]);
+  // Include cash-sale receipts that carry a VAT tax code directly on their lines
+  const items = [...invItems, ...receiptItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
@@ -159,6 +180,7 @@ async function buildSLSRows(biz, start, end, vm) {
     if (taxable + zeroRated + exempt === 0) continue;
     rows.push({
       date: item.Date, reference: item.Reference || item.InvoiceNumber || '',
+      partyKey: ck,
       name, tin: cd.tin || '', address: [cd.address1, cd.address2].filter(Boolean).join(', '),
       companyName: cd.companyName || '', lastName: cd.lastName || '', firstName: cd.firstName || '', middleName: cd.middleName || '',
       address1: cd.address1 || '', address2: cd.address2 || '',
@@ -170,10 +192,13 @@ async function buildSLSRows(biz, start, end, vm) {
 }
 
 async function buildSLPRows(biz, start, end, vm) {
-  const [items, suppMap] = await Promise.all([
+  const [invItems, paymentItems, suppMap] = await Promise.all([
     fetchAllBatch('/api4/purchase-invoice-batch', biz),
+    fetchAllBatch('/api4/payment-batch', biz),
     loadPartyBIR(biz, 'supplier'),
   ]);
+  // Include cash-purchase/expense payments that carry a VAT tax code directly on their lines
+  const items = [...invItems, ...paymentItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
@@ -196,6 +221,7 @@ async function buildSLPRows(biz, start, end, vm) {
     if (capGoods + otherGoods + services + zeroRated + exempt === 0) continue;
     rows.push({
       date: item.Date, reference: item.Reference || item.InvoiceNumber || '',
+      partyKey: sk,
       name, tin: sd.tin || '', address: [sd.address1, sd.address2].filter(Boolean).join(', '),
       companyName: sd.companyName || '', lastName: sd.lastName || '', firstName: sd.firstName || '', middleName: sd.middleName || '',
       address1: sd.address1 || '', address2: sd.address2 || '',
