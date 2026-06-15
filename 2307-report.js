@@ -72,10 +72,14 @@ async function init2307Report() {
 // Build EWT rows per ATC per supplier for the quarter, split by month-in-quarter.
 async function buildEWTBySupplier(biz, start, end) {
   const customAtcMap = loadAtcMapping();
-  const [invItems, paymentItems] = await Promise.all([
+  const [invItems, paymentItems, { tcKeyToAtc, taxCodes }] = await Promise.all([
     fetchAllBatch('/api4/purchase-invoice-batch', biz),
     fetchAllBatch('/api4/payment-batch', biz),
+    getEwtTcMap(biz),
   ]);
+  const tcNameByKey = {};
+  const rateByKey = {};
+  taxCodes.forEach(tc => { tcNameByKey[tc.key] = tc.name; rateByKey[tc.key] = tc.rate; });
 
   const items = [...invItems, ...paymentItems];
   // supplierKey -> { atc -> { atc, desc, rate, months:[base/ewt x3], totalBase, totalEwt } }
@@ -84,7 +88,7 @@ async function buildEWTBySupplier(biz, start, end) {
   for (const { item } of items) {
     const date = item?.issueDate || item?.Date;
     if (!inRange(date, start, end)) continue;
-    const ewtLines = extractEWT(item, customAtcMap);
+    const ewtLines = extractEWT(item, customAtcMap, tcNameByKey, rateByKey, tcKeyToAtc);
     if (!ewtLines.length) continue;
 
     const suppKey = item?.supplier || item?.Supplier || '';
