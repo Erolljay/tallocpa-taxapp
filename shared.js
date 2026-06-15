@@ -522,7 +522,10 @@ async function getEwtTcMap(biz) {
     if (!tcKey) continue;
     const info = ATC_MASTER[atc];
     const tc = taxCodes.find(t => t.key === tcKey);
-    tcKeyToAtc[tcKey] = { atc, desc: info?.desc || atc, rate: Number(tc?.rate ?? info?.rate ?? 0) };
+    // Prefer the real ATC rate from ATC_MASTER: Manager tax codes for EWT
+    // are set up as 0%/100% pass-throughs (line amount = tax withheld), so
+    // tc.rate is not the rate to use for grossing up the tax base.
+    tcKeyToAtc[tcKey] = { atc, desc: info?.desc || atc, rate: Number(info?.rate ?? tc?.rate ?? 0) };
   }
   return { tcKeyToAtc, atcToTcKey, taxCodes };
 }
