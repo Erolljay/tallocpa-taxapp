@@ -23,11 +23,19 @@
     </div>
   </div>
   <div id="biz-selector-wrap" class="no-print"></div>
-  <div id="filter-area" class="no-print"></div>
-  <div id="report-output"></div>
+  <div class="tab-bar no-print" id="sl-tabs">
+    <button class="tab-btn active" data-tab="report">📊 SLP Report</button>
+    <button class="tab-btn" data-tab="suppliers">🏭 Suppliers</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div id="filter-area" class="no-print"></div>
+    <div id="report-output"></div>
+  </div>
+  <div id="tab-suppliers" class="tab-panel no-print"></div>
 </div>
 <script>const REPORT_ID = "d4e5f6a7-b8c9-4012-d345-e6f7a8b9c0d1";</script>
 <script src="shared.js"></script>
+<script src="custom-fields.js"></script>
 <script src="sls-report.js"></script>
 <script>
   document.addEventListener('DOMContentLoaded', () => initSLReport('slp'));
