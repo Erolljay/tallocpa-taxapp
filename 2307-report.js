@@ -8,6 +8,11 @@
 let _f2307Setup = null;
 let _f2307SuppMap = {};
 
+function tinDashed(t) {
+  const d = (t || '').replace(/\D/g, '').padEnd(9, '0').substring(0, 9);
+  return `${d.substring(0,3)}-${d.substring(3,6)}-${d.substring(6,9)}`;
+}
+
 async function init2307Report() {
   const filterEl = document.getElementById('filter-area');
   const outputEl = document.getElementById('report-output');
