@@ -138,10 +138,13 @@ async function generateSL(type) {
 
 // ── BUILD SLS ROWS ────────────────────────────────────────────
 async function buildSLSRows(start, end, vm, setup) {
-  const [items, custData] = await Promise.all([
+  const [invItems, receiptItems, custData] = await Promise.all([
     fetchAllBatch('/api4/sales-invoice-batch', App.currentBusiness),
+    fetchAllBatch('/api4/receipt-batch', App.currentBusiness),
     loadPartyBIR(App.currentBusiness, 'customer'),
   ]);
+  // Include receipts so cash-sale workflows (no sales invoice) are captured too
+  const items = [...invItems, ...receiptItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
   const salesMap = vm.sales || {};
   const rows     = [];
 
@@ -196,10 +199,13 @@ async function buildSLSRows(start, end, vm, setup) {
 
 // ── BUILD SLP ROWS ────────────────────────────────────────────
 async function buildSLPRows(start, end, vm, setup) {
-  const [items, suppData] = await Promise.all([
+  const [invItems, paymentItems, suppData] = await Promise.all([
     fetchAllBatch('/api4/purchase-invoice-batch', App.currentBusiness),
+    fetchAllBatch('/api4/payment-batch', App.currentBusiness),
     loadPartyBIR(App.currentBusiness, 'supplier'),
   ]);
+  // Include payments so cash-purchase/expense workflows (no purchase invoice) are captured too
+  const items = [...invItems, ...paymentItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
   const purchMap = vm.purchases || {};
   const rows     = [];
 
