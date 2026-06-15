@@ -1,8 +1,8 @@
 /* ============================================================
    Tallo CPA – BIR Tax App
-   qap-report.js  –  Quarterly Alphalist of Payees (QAP) /
-                      Summary Alphalist of Withholding Taxes (SAWT)
-                      per BIR RMC No. 15-2025, Annex A file structure
+   qap-report.js  –  Quarterly Alphalist of Payees (QAP)
+                      Attachment to BIR Form 1601-EQ — EWT withheld
+                      from suppliers, per BIR RMC No. 15-2025, Annex A
    ============================================================ */
 
 let _qapSuppMap = {};
@@ -46,17 +46,10 @@ async function initQAPReport() {
       <select id="qap-year">
         ${years.map(y=>`<option value="${y}"${y===curY?' selected':''}>${y}</option>`).join('')}
       </select>
-      <label>Return Type</label>
-      <select id="qap-formtype">
-        <option value="1701Q">1701Q – Individual Quarterly ITR</option>
-        <option value="1702Q">1702Q – Corporate Quarterly ITR</option>
-        <option value="1701">1701 – Individual Annual ITR</option>
-        <option value="1702">1702 – Corporate Annual ITR</option>
-      </select>
       <div class="filter-sep"></div>
       <button class="btn btn-primary" id="qap-gen">⚡ Generate</button>
       <button class="btn btn-outline" id="qap-excel" style="display:none;">📥 Excel (QAP)</button>
-      <button class="btn btn-outline" id="qap-dat"   style="display:none;">📄 DAT (SAWT)</button>
+      <button class="btn btn-outline" id="qap-dat"   style="display:none;">📄 DAT File</button>
     </div>
     <div style="font-size:11px;color:#6b7280;margin-top:4px;">
       Business: <strong>${escHtml(biz)}</strong> &nbsp;|&nbsp;
@@ -64,6 +57,38 @@ async function initQAPReport() {
     </div>`;
 
   document.getElementById('qap-gen').addEventListener('click', () => generateQAP(biz, setup, outputEl));
+
+  // Suppliers quick-edit tab — mirrors SLP's pattern
+  let supplierController = null;
+  document.getElementById('qap-tabs')?.addEventListener('click', e => {
+    const btn = e.target.closest('.tab-btn'); if (!btn) return;
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('#qap-tabs .tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    if (tab === 'suppliers') {
+      const container = document.getElementById('tab-suppliers');
+      if (!supplierController) supplierController = CF.mountParty(container, 'supplier');
+      supplierController.refresh().then(() => filterSupplierTabToPeriod(container));
+    }
+  });
+}
+
+// Hide suppliers with no EWT transactions in the currently-generated QAP
+// period, so the tab only shows the suppliers relevant to that period.
+let _qapRows = [];
+function filterSupplierTabToPeriod(container) {
+  if (!_qapRows.length) return;
+  const keys = new Set(_qapRows.map(r => r.suppKey).filter(Boolean));
+  if (!keys.size) return;
+  let shown = 0, total = 0;
+  container.querySelectorAll('tbody tr[data-key]').forEach(tr => {
+    total++;
+    const visible = keys.has(tr.dataset.key);
+    tr.style.display = visible ? '' : 'none';
+    if (visible) shown++;
+  });
+  const countEl = container.querySelector('[id$="-count"]');
+  if (countEl) countEl.textContent = `${shown} of ${total} records have transactions in the selected period`;
 }
 
 // ── DATA AGGREGATION ─────────────────────────────────────────
@@ -116,11 +141,12 @@ async function generateQAP(biz, setup, outputEl) {
 
   const q    = parseInt(document.getElementById('qap-quarter').value, 10);
   const year = parseInt(document.getElementById('qap-year').value, 10);
-  const formType = document.getElementById('qap-formtype').value;
+  const formType = '1601EQ';
   const { start, end } = getPeriodDates('quarterly', q, year);
 
   try {
     const rows = await buildQAPRows(biz, start, end);
+    _qapRows = rows;
 
     if (!rows.length) {
       outputEl.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>No EWT Transactions Found</h3>
