@@ -65,7 +65,7 @@ const REPORTS = [
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 2,
-    available: false,
+    available: true,
   },
   {
     id: 'a1b2c3d4-0003-4000-8000-000000000002',
@@ -74,7 +74,7 @@ const REPORTS = [
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 2,
-    available: false,
+    available: true,
   },
   {
     id: 'e5f6a7b8-c9d0-4123-e456-f7a8b9c0d1e2',
@@ -83,7 +83,7 @@ const REPORTS = [
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 2,
-    available: false,
+    available: true,
   },
   {
     id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
@@ -97,7 +97,7 @@ const REPORTS = [
   {
     id: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4',
     name: 'BIR Form 2307 – Certificate of Creditable WT',
-    file: 'tallo-2307.html',
+    file: '2307.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 1,
