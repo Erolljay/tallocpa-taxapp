@@ -27,11 +27,22 @@
     </div>
   </div>
   <div id="biz-selector-wrap" class="no-print"></div>
-  <div id="filter-area" class="no-print"></div>
-  <div id="report-output"></div>
+  <div class="tab-bar no-print" id="eq-tabs">
+    <button class="tab-btn active" data-tab="report">🧾 1601-EQ Report</button>
+    <button class="tab-btn" data-tab="taxcodes">🗂 Tax Codes</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div id="filter-area" class="no-print"></div>
+    <div id="report-output"></div>
+  </div>
+  <div id="tab-taxcodes" class="tab-panel no-print">
+    <div id="taxcodes-output"><div class="alert alert-info">Loading tax code mapping…</div></div>
+  </div>
 </div>
 <script>const REPORT_ID = "a1b2c3d4-0003-4000-8000-000000000002";</script>
 <script src="shared.js"></script>
+<script src="ewt-helpers.js"></script>
+<script src="ewt-taxcodes-tab.js"></script>
 <script src="1601eq-report.js"></script>
 <script>
   document.addEventListener('DOMContentLoaded', () => init1601EQReport());
