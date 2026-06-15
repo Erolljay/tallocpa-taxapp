@@ -191,10 +191,10 @@ async function generate1601EQ(biz, setup, outputEl) {
   const { start, end } = getPeriodDates('quarterly', quarter, year);
 
   try {
-    const [taxCodes] = await Promise.all([fetchManagerTaxCodes(biz)]);
+    const { tcKeyToAtc, taxCodes } = await getEwtTcMap(biz);
     const rateByKeyEWT = {};
     taxCodes.forEach(tc => rateByKeyEWT[tc.key] = tc.rate);
-    const ewtMap = setup.ewtMapping || {};
+    const ewtMap = tcKeyToAtc;
 
     const { atcRows, detail } = await buildEWTAlphalist(biz, start, end, ewtMap, rateByKeyEWT);
     _eqAtcRows = atcRows; _eqDetail = detail;
