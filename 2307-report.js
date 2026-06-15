@@ -286,8 +286,8 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
 
   const fromStr = fmtDateMDY(start);
   const toStr   = fmtDateMDY(end);
-  const repLine = setup.authorizedRepName
-    ? [setup.authorizedRepName, setup.authorizedRepTitle].filter(Boolean).join(' - ')
+  const repLine = setup.authRep
+    ? [setup.authRep, setup.authRepTitle].filter(Boolean).join(' - ')
     : '';
 
   return `
