@@ -145,7 +145,8 @@ async function buildSLSRows(start, end, vm, setup) {
   ]);
   // Include receipts so cash-sale workflows (no sales invoice) are captured too
   const items = [...invItems, ...receiptItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
-  const salesMap = vm.sales || {};
+  // setup.vatMapping uses flat keys (sales_taxable, sales_zero, sales_exempt, ...)
+  // mapping to Manager tax code keys — same shape as used by 2550Q.
   const rows     = [];
 
   for (const { key: invKey, item } of items) {
@@ -160,16 +161,16 @@ async function buildSLSRows(start, end, vm, setup) {
     let taxableSales = 0, zeroRated = 0, exempt = 0, outputVAT = 0;
 
     for (const line of (item?.Lines || [])) {
-      const tc  = line?.TaxCode?.name || line?.TaxCodeName || '';
+      const tc  = line?.TaxCode?.key || line?.TaxCode || line?.taxCode || '';
       const amt = Math.abs(Number(line?.Amount || 0));
       const tax = Math.abs(Number(line?.Tax || 0));
 
-      if (salesMap.taxable && tc === salesMap.taxable) {
+      if (vm.sales_taxable && tc === vm.sales_taxable) {
         taxableSales += amt;
         outputVAT    += tax || (amt * 0.12);
-      } else if (salesMap.zeroRated && tc === salesMap.zeroRated) {
+      } else if (vm.sales_zero && tc === vm.sales_zero) {
         zeroRated += amt;
-      } else if (salesMap.exempt && tc === salesMap.exempt) {
+      } else if (vm.sales_exempt && tc === vm.sales_exempt) {
         exempt += amt;
       }
     }
@@ -206,7 +207,6 @@ async function buildSLPRows(start, end, vm, setup) {
   ]);
   // Include payments so cash-purchase/expense workflows (no purchase invoice) are captured too
   const items = [...invItems, ...paymentItems.filter(({ item }) => (item?.Lines || []).some(l => l?.TaxCode))];
-  const purchMap = vm.purchases || {};
   const rows     = [];
 
   for (const { key: invKey, item } of items) {
@@ -221,22 +221,22 @@ async function buildSLPRows(start, end, vm, setup) {
     let capitalGoods = 0, otherGoods = 0, services = 0, zeroRated = 0, exempt = 0, inputVAT = 0;
 
     for (const line of (item?.Lines || [])) {
-      const tc  = line?.TaxCode?.name || line?.TaxCodeName || '';
+      const tc  = line?.TaxCode?.key || line?.TaxCode || line?.taxCode || '';
       const amt = Math.abs(Number(line?.Amount || 0));
       const tax = Math.abs(Number(line?.Tax || 0));
 
-      if (purchMap.capitalGoods && tc === purchMap.capitalGoods) {
+      if (vm.purch_capital && tc === vm.purch_capital) {
         capitalGoods += amt;
         inputVAT     += tax || (amt * 0.12);
-      } else if (purchMap.otherThanCapitalGoods && tc === purchMap.otherThanCapitalGoods) {
+      } else if (vm.purch_other && tc === vm.purch_other) {
         otherGoods += amt;
         inputVAT   += tax || (amt * 0.12);
-      } else if (purchMap.services && tc === purchMap.services) {
+      } else if (vm.purch_services && tc === vm.purch_services) {
         services += amt;
         inputVAT += tax || (amt * 0.12);
-      } else if (purchMap.zeroRated && tc === purchMap.zeroRated) {
+      } else if (vm.purch_zero && tc === vm.purch_zero) {
         zeroRated += amt;
-      } else if (purchMap.exempt && tc === purchMap.exempt) {
+      } else if (vm.purch_exempt && tc === vm.purch_exempt) {
         exempt += amt;
       }
     }
