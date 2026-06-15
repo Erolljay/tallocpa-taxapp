@@ -80,13 +80,27 @@ function extractEWTLines(item, ewtMap, rateByKeyEWT) {
 
     const qty = Number(line?.qty ?? 1);
     const unitPrice = Number(line?.salesUnitPrice ?? line?.purchaseUnitPrice ?? line?.unitPrice ?? 0);
-    let base = qty * unitPrice;
-    if (line?.discountPercentage) base *= (1 - Number(line.discountPercentage) / 100);
-    base -= Number(line?.discountAmount || 0);
-    base = Math.abs(base);
+    let amount = qty * unitPrice;
+    if (line?.discountPercentage) amount *= (1 - Number(line.discountPercentage) / 100);
+    amount -= Number(line?.discountAmount || 0);
+    amount = Math.abs(amount);
 
-    const rate = Number(rateByKeyEWT?.[tcKey] ?? info.rate ?? 0);
-    const ewt = base * rate / 100;
+    // Manager has no native withholding-tax line type, so EWT is recorded
+    // using a 0% pass-through tax code where the line amount IS the tax
+    // withheld. Gross it up using the real ATC rate to get the tax base.
+    const mgrRate = Number(rateByKeyEWT?.[tcKey] ?? 0);
+    let rate, base, ewt;
+    if (mgrRate > 0 && mgrRate < 100) {
+      rate = mgrRate;
+      base = amount;
+      ewt = base * rate / 100;
+    } else {
+      // mgrRate is 0 (legacy pass-through) or 100 (standard pass-through
+      // workaround): the line amount IS the EWT amount, so gross it up.
+      rate = Number(info.rate ?? 0);
+      ewt = amount;
+      base = rate > 0 ? amount / (rate / 100) : amount;
+    }
     out.push({ atc: info.atc, desc: info.desc, rate, base, ewt });
   }
   return out;
