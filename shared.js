@@ -435,6 +435,69 @@ async function loadPartyBIR(biz, partyType) {
   }
 }
 
+// ── VAT MAPPING (auto-match Manager tax codes by standard name) ─
+// Shared with 2550Q so SLS/SLP use the exact same tax-code keys.
+const VAT_CATEGORY_TC_NAME = {
+  sales_taxable:   'Output VAT 12%',
+  sales_zero:      'Zero-Rated Sales',
+  sales_exempt:    'VAT Exempt Sales',
+  purch_capital:   'Input VAT 12% (Capital Goods)',
+  purch_other:     'Input VAT 12% (Other Goods)',
+  purch_services:  'Input VAT 12% (Services)',
+  purch_zero:      'Zero-Rated Purchases',
+  purch_exempt:    'VAT Exempt Purchases',
+  govt_wv012:      'WV012 – Govt WHT VAT Goods (5%)',
+  govt_wv022:      'WV022 – Govt WHT VAT Services (5%)',
+};
+
+async function fetchManagerTaxCodes(biz) {
+  const items = await fetchAllBatch('/api4/tax-code-batch', biz);
+  return items.map(row => {
+    const data = row?.item || row?.value || row || {};
+    const name = data.Name || data.name || data.Code || data.code || '';
+    const rate = Number(data.rate ?? (Array.isArray(data.rates) ? data.rates[0] : 0)) || 0;
+    return { key: row?.key || row?.Key || data.key || '', name: name || `(unnamed: ${row?.key || ''})`, rate };
+  });
+}
+
+function autoMatchVatMapping(taxCodes) {
+  const nameToKey = {};
+  for (const tc of taxCodes) {
+    const n = (tc.name || '').toLowerCase().trim();
+    if (n) nameToKey[n] = tc.key;
+  }
+  const vm = {};
+  for (const [catKey, tcName] of Object.entries(VAT_CATEGORY_TC_NAME)) {
+    const k = nameToKey[tcName.toLowerCase().trim()];
+    if (k) vm[catKey] = k;
+  }
+  return vm;
+}
+
+function overridesStorageKey(biz) { return `2550q_taxcode_overrides_${biz}`; }
+
+function getMappingOverrides(biz) {
+  try { return JSON.parse(localStorage.getItem(overridesStorageKey(biz))) || {}; }
+  catch { return {}; }
+}
+
+function saveMappingOverrides(biz, overrides) {
+  localStorage.setItem(overridesStorageKey(biz), JSON.stringify(overrides));
+}
+
+// Final vm = auto-matched mapping with any saved overrides applied on top.
+async function getVatMapping(biz) {
+  const taxCodes = await fetchManagerTaxCodes(biz);
+  const vm = autoMatchVatMapping(taxCodes);
+  const overrides = getMappingOverrides(biz);
+  for (const [catKey, tcKey] of Object.entries(overrides)) {
+    if (tcKey) vm[catKey] = tcKey; else delete vm[catKey];
+  }
+  const rateByKey = {};
+  for (const tc of taxCodes) rateByKey[tc.key] = tc.rate;
+  return { vm, rateByKey };
+}
+
 // ── UTILITIES ────────────────────────────────────────────────
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
