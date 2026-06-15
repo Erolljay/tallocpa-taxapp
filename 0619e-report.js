@@ -9,32 +9,14 @@ function getLines0619(item) {
   return item?.Lines || item?.lines || [];
 }
 
-// Reuse the same ATC master as 1601-EQ if it's loaded on the page;
-// otherwise fall back to a minimal local copy.
-const ATC_MASTER_0619E = (typeof ATC_MASTER_1601EQ !== 'undefined') ? ATC_MASTER_1601EQ : {
-  WI010:{desc:'Professional fees – Individual ≤3M',rate:5},
-  WI011:{desc:'Professional fees – Individual >3M/VAT',rate:10},
-  WC010:{desc:'Professional fees – Corp ≤720k',rate:10},
-  WC011:{desc:'Professional fees – Corp >720k',rate:15},
-  WI120:{desc:'Income payments to certain contractors – Individual',rate:2},
-  WC120:{desc:'Income payments to certain contractors – Corporation',rate:2},
-  WI158:{desc:'Top WA – Purchase of goods – Individual',rate:1},
-  WC158:{desc:'Top WA – Purchase of goods – Corporation',rate:1},
-  WI160:{desc:'Top WA – Purchase of services – Individual',rate:2},
-  WC160:{desc:'Top WA – Purchase of services – Corporation',rate:2},
-};
-
+// 0619-E doesn't require an ATC alphalist — any tax code mapped to an
+// EWT ATC (via the shared "Tax Codes" tab / ewtMap from getEwtTcMap)
+// counts toward the total remittance. No name-based fallback needed.
 function resolveAtc0619E(tcName, ewtMap, tcKey) {
   if (ewtMap && tcKey && ewtMap[tcKey]) {
     const m = ewtMap[tcKey];
     const atc = (m.atc || m).toString().toUpperCase();
-    return { atc, desc: m.desc || ATC_MASTER_0619E[atc]?.desc || atc, rate: Number(m.rate ?? ATC_MASTER_0619E[atc]?.rate ?? 0) };
-  }
-  if (!tcName) return null;
-  const upper = tcName.toUpperCase().trim();
-  if (ATC_MASTER_0619E[upper]) return { atc: upper, ...ATC_MASTER_0619E[upper] };
-  for (const atc of Object.keys(ATC_MASTER_0619E)) {
-    if (upper.includes(atc)) return { atc, ...ATC_MASTER_0619E[atc] };
+    return { atc, desc: m.desc || ATC_MASTER[atc]?.desc || atc, rate: Number(m.rate ?? ATC_MASTER[atc]?.rate ?? 0) };
   }
   return null;
 }
@@ -137,10 +119,10 @@ async function generate0619E(biz, setup, outputEl) {
   const { start, end } = getPeriodDates('monthly', month, year);
 
   try {
-    const taxCodes = await fetchManagerTaxCodes(biz);
+    const { tcKeyToAtc, taxCodes } = await getEwtTcMap(biz);
     const rateByKeyEWT = {};
     taxCodes.forEach(tc => rateByKeyEWT[tc.key] = tc.rate);
-    const ewtMap = setup.ewtMapping || {};
+    const ewtMap = tcKeyToAtc;
 
     const { atcRows, detail } = await buildEWTMonthly(biz, start, end, ewtMap, rateByKeyEWT);
     const period = { month, year, start, end, label: `${monthName(month)} ${year}` };
