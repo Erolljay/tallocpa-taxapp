@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>1604-C — Alphalist of Employees</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: white; overflow: auto; height: auto; }
+    #app-header { display: none; }
+    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    @media print {
+      .filter-bar, .btn, .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+  <div class="page-header no-print">
+    <div>
+      <div class="page-title">📇 BIR Form 1604-C — Alphalist of Employees</div>
+      <div class="page-subtitle">Annual Information Return of Income Taxes Withheld on Compensation, with per-employee BIR Form 2316</div>
+    </div>
+  </div>
+  <div id="biz-selector-wrap" class="no-print"></div>
+  <div class="tab-bar no-print" id="alphalist-tabs">
+    <button class="tab-btn active" data-tab="report">📇 Alphalist Report</button>
+    <button class="tab-btn" data-tab="2316">🧾 BIR Form 2316</button>
+  </div>
+  <div id="tab-report" class="tab-panel active">
+    <div class="filter-bar no-print"></div>
+    <div id="report-output">
+      <div class="alert alert-info">
+        Select a year and click <strong>Generate</strong> to compute the 1604-C Alphalist.
+      </div>
+    </div>
+  </div>
+  <div id="tab-2316" class="tab-panel no-print">
+    <div class="filter-bar no-print"></div>
+    <div id="form2316-output">
+      <div class="alert alert-info">
+        Select a year and employee(s), then click <strong>Generate</strong> to produce BIR Form 2316 certificates.
+      </div>
+    </div>
+  </div>
+</div>
+<script>const REPORT_ID = "b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5";</script>
+<style>
+  .form-title { text-align:center; margin-bottom:12px; }
+  .form-title h2 { margin:0; font-size:16px; }
+  .form-title .sub { font-size:11px; color:#6b7280; }
+</style>
+<script src="shared.js"></script>
+<script src="custom-fields.js"></script>
+<script src="payroll-helpers.js"></script>
+<script src="2316-report.js"></script>
+<script src="alphalist-report.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    let biz, setup;
+    try {
+      biz = await getReportBusiness(document.getElementById('biz-selector-wrap'));
+      setup = await loadSetup(biz);
+    } catch (e) {}
+    if (biz && setup) {
+      try { initAlphalistTab(biz, setup); } catch (e) { console.warn(e); }
+      try { await init2316Tab(biz, setup); } catch (e) { console.warn(e); }
+    }
+    document.getElementById('alphalist-tabs').addEventListener('click', e => {
+      const btn = e.target.closest('.tab-btn'); if (!btn) return;
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    });
+  });
+</script>
+</body>
+</html>

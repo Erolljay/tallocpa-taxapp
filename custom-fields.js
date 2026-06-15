@@ -49,17 +49,30 @@
   ];
 
   var EMPLOYEE_FIELDS = [
+    // [0-3] BIR Identity
     { id: 'b1r00003-0000-4000-a000-000000000001', label: 'TIN',                     type: 'text', placeholder: '000-000-000-000' },
     { id: 'b1r00003-0000-4000-a000-000000000002', label: 'SSS Number',               type: 'text', placeholder: 'XX-XXXXXXX-X' },
     { id: 'b1r00003-0000-4000-a000-000000000003', label: 'PhilHealth Number',        type: 'text', placeholder: 'XX-XXXXXXXXX-X' },
     { id: 'b1r00003-0000-4000-a000-000000000004', label: 'Pag-IBIG (HDMF) Number',  type: 'text', placeholder: 'XXXX-XXXX-XXXX' },
-    { id: 'b1r00003-0000-4000-a000-000000000005', label: 'Employment Status',        type: 'select', options: ['', 'Regular', 'Contractual', 'Probationary', 'Part-time', 'Casual'] },
-    { id: 'b1r00003-0000-4000-a000-000000000006', label: 'Tax Status (exemptions)',  type: 'select', options: ['', 'S', 'S1', 'S2', 'S3', 'S4', 'ME', 'ME1', 'ME2', 'ME3', 'ME4'] },
+    // [4-9] Employment Details
+    { id: 'b1r00003-0000-4000-a000-000000000005', label: 'Employment Status',        type: 'select', options: ['', 'R', 'C', 'CP', 'S', 'P', 'AL'], labels: ['-- select --', 'Regular', 'Casual', 'Contractual/Project-Based', 'Seasonal', 'Probationary', 'Apprentice/Learners'] },
+    { id: 'b1r00003-0000-4000-a000-000000000006', label: 'Tax Status',               type: 'select', options: ['', 'MWE', 'NMWE'], labels: ['-- select --', 'MWE - Minimum Wage Earner', 'NMWE - Non-Minimum Wage Earner'] },
+    { id: 'b1r00003-0000-4000-a000-000000000023', label: 'Date Hired',               type: 'date' },
+    { id: 'b1r00003-0000-4000-a000-000000000024', label: 'Date Separated',           type: 'date' },
+    { id: 'b1r00003-0000-4000-a000-000000000025', label: 'Reason for Separation',    type: 'select', options: ['', 'NA', 'T', 'TR', 'R', 'D'], labels: ['-- select --', 'Not Applicable', 'Terminated / Resigned', 'Transferred', 'Retirement', 'Death'] },
+    { id: 'b1r00003-0000-4000-a000-000000000026', label: 'Substituted Filing',       type: 'select', options: ['', 'Y', 'N'], labels: ['-- select --', 'Yes', 'No'] },
+    // [10-20] Personal Information
     { id: 'b1r00003-0000-4000-a000-000000000007', label: 'Last Name',                type: 'text', placeholder: 'Dela Cruz' },
     { id: 'b1r00003-0000-4000-a000-000000000008', label: 'First Name',               type: 'text', placeholder: 'Juan' },
     { id: 'b1r00003-0000-4000-a000-000000000009', label: 'Middle Name',              type: 'text', placeholder: 'Santos' },
     { id: 'b1r00003-0000-4000-a000-000000000010', label: 'Date of Birth',            type: 'date' },
     { id: 'b1r00003-0000-4000-a000-000000000011', label: 'Address',                  type: 'text', placeholder: 'Unit, Bldg, Street, Barangay, City' },
+    { id: 'b1r00003-0000-4000-a000-000000000027', label: 'Region',                   type: 'text', placeholder: 'e.g. NCR' },
+    { id: 'b1r00003-0000-4000-a000-000000000028', label: 'Zip Code',                 type: 'text', placeholder: 'e.g. 5000' },
+    { id: 'b1r00003-0000-4000-a000-000000000029', label: 'Telephone Number',         type: 'text', placeholder: 'e.g. 09171234567' },
+    { id: 'b1r00003-0000-4000-a000-000000000030', label: 'Valid ID',                 type: 'text', placeholder: 'e.g. SSS 12-3456789-0' },
+    { id: 'b1r00003-0000-4000-a000-000000000031', label: 'Place of Issue of ID',     type: 'text', placeholder: 'e.g. Cebu City' },
+    { id: 'b1r00003-0000-4000-a000-000000000032', label: 'Nationality',              type: 'text', placeholder: 'e.g. Filipino' },
   ];
 
   var PAYSLIP_ITEM_TYPES = [
@@ -73,6 +86,9 @@
       { id: 'ph-bir-earn-07', name: 'De Minimis Benefits (non-taxable)' },
       { id: 'ph-bir-earn-08', name: 'Other Taxable Allowances' },
       { id: 'ph-bir-earn-09', name: 'Separation Pay / Retirement' },
+      { id: 'ph-bir-earn-10', name: 'Commission' },
+      { id: 'ph-bir-earn-11', name: 'Profit Sharing' },
+      { id: 'ph-bir-earn-12', name: "Fees Including Director's Fees" },
     ]},
     { key: 'deductions', label: 'Deductions', endpoint: 'payslip-deduction-item', categories: [
       { id: 'ph-bir-ded-01', name: 'Withholding Tax on Compensation' },
@@ -600,8 +616,8 @@
       var empBlob = parseBIRBlob((emp.value.customFields2 && emp.value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
       var groups = [
         { heading: 'BIR Identity', fields: EMPLOYEE_FIELDS.slice(0, 4) },
-        { heading: 'Employment Details', fields: EMPLOYEE_FIELDS.slice(4, 6) },
-        { heading: 'Personal Information', fields: EMPLOYEE_FIELDS.slice(6) },
+        { heading: 'Employment Details', fields: EMPLOYEE_FIELDS.slice(4, 10) },
+        { heading: 'Personal Information', fields: EMPLOYEE_FIELDS.slice(10) },
       ];
       var groupsHtml = groups.map(function(g) {
         return '<fieldset style="border:.5px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:12px;">' +

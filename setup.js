@@ -13,7 +13,7 @@ const PACKAGES = [
   { id: 'pkg-qap',   name: 'QAP – Quarterly Alphalist of Payees', file: 'qap.html', uuid: 'e5f6a7b8-c9d0-4123-e456-f7a8b9c0d1e2', phase: 2, req: 'expanded' },
   { id: 'pkg-sawt',  name: 'SAWT – Summary Alphalist of Withholding Taxes', file: 'sawt.html', uuid: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3', phase: 2, req: 'expanded' },
   { id: 'pkg-2307',  name: 'Generate BIR Form 2307', file: '2307.html',    uuid: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4', phase: 2, req: 'expanded' },
-  { id: 'pkg-2316',  name: 'Generate BIR Form 2316', file: '2316.html',    uuid: 'b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5', phase: 2, req: 'compensation' },
+  { id: 'pkg-2316',  name: '1604-C – Alphalist of Employees (incl. BIR Form 2316)', file: 'alphalist.html', uuid: 'b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5', phase: 2, req: 'compensation' },
   { id: 'pkg-sss',   name: 'SSS / PhilHealth / Pag-IBIG Remittance', file: 'sss.html', uuid: 'c9d0e1f2-a3b4-4567-c890-d1e2f3a4b5c6', phase: 2, req: 'compensation' },
 ];
 
@@ -47,6 +47,7 @@ function renderSetup(el) {
       <button class="tab-btn"         data-tab="pkgs">📦 Install Packages</button>
       <button class="tab-btn"         data-tab="vat">🗂 VAT Mapping</button>
       <button class="tab-btn"         data-tab="ewt">🗂 EWT Mapping</button>
+      <button class="tab-btn"         data-tab="payroll">🧾 Payroll Items</button>
       <button class="tab-btn"         data-tab="customers">👤 Customers</button>
       <button class="tab-btn"         data-tab="suppliers">🏭 Suppliers</button>
     </div>
@@ -54,6 +55,7 @@ function renderSetup(el) {
     <div id="tab-pkgs"      class="tab-panel">${renderPackagesTab(setup)}</div>
     <div id="tab-vat"       class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
     <div id="tab-ewt"       class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
+    <div id="tab-payroll"   class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
     <div id="tab-customers" class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
     <div id="tab-suppliers" class="tab-panel"><div class="spinner-wrap"><div class="spinner"></div><span>Loading…</span></div></div>
   `;
@@ -66,6 +68,7 @@ function renderSetup(el) {
     if (tab === 'pkgs')      reRenderPackagesTab();
     if (tab === 'vat')       loadVATMappingTab();
     if (tab === 'ewt')       loadEwtMappingTab();
+    if (tab === 'payroll')   loadPayrollItemsTab();
     if (tab === 'customers') loadPartyTab('customers');
     if (tab === 'suppliers') loadPartyTab('suppliers');
   });
@@ -600,6 +603,114 @@ async function fetchPartyList(type, businessName) {
     skip += 50;
   }
   return all; // Each item: { key, Name, Code, ... } — Name is top-level
+}
+
+// ── TAB: PAYROLL ITEMS (auto-create + auto-map to BIR categories) ──
+// Mirrors the VAT "Install Tax Code" pattern: one click creates the
+// Manager payslip item AND sets its reportingCategory in one go.
+const PAYROLL_ITEM_DEFS = [
+  // Earnings
+  { endpoint: 'payslip-earnings-item',     name: 'Basic Salary',                 category: 'ph-bir-earn-01', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Overtime Pay',                 category: 'ph-bir-earn-02', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Holiday Pay',                  category: 'ph-bir-earn-03', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Night Differential',           category: 'ph-bir-earn-04', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Hazard Pay',                   category: 'ph-bir-earn-05', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: '13th Month Pay',               category: 'ph-bir-earn-06', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'De Minimis Benefits',          category: 'ph-bir-earn-07', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Other Taxable Allowances',     category: 'ph-bir-earn-08', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Separation / Retirement Pay',  category: 'ph-bir-earn-09', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Commission',                   category: 'ph-bir-earn-10', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: 'Profit Sharing',               category: 'ph-bir-earn-11', group: 'Earnings' },
+  { endpoint: 'payslip-earnings-item',     name: "Director's Fees",              category: 'ph-bir-earn-12', group: 'Earnings' },
+  // Deductions
+  { endpoint: 'payslip-deduction-item',    name: 'Withholding Tax',                    category: 'ph-bir-ded-01', group: 'Deductions' },
+  { endpoint: 'payslip-deduction-item',    name: 'SSS Employee Contribution',          category: 'ph-bir-ded-02', group: 'Deductions' },
+  { endpoint: 'payslip-deduction-item',    name: 'PhilHealth Employee Contribution',   category: 'ph-bir-ded-03', group: 'Deductions' },
+  { endpoint: 'payslip-deduction-item',    name: 'Pag-IBIG Employee Contribution',     category: 'ph-bir-ded-04', group: 'Deductions' },
+  // Employer Contributions
+  { endpoint: 'payslip-contribution-item', name: 'SSS Employer Share',           category: 'ph-bir-con-01', group: 'Employer Contributions' },
+  { endpoint: 'payslip-contribution-item', name: 'PhilHealth Employer Share',    category: 'ph-bir-con-02', group: 'Employer Contributions' },
+  { endpoint: 'payslip-contribution-item', name: 'Pag-IBIG Employer Share',      category: 'ph-bir-con-03', group: 'Employer Contributions' },
+];
+
+let _payrollItemsCache = {}; // endpoint -> [{key, value}]
+
+async function fetchPayrollItems(biz) {
+  const endpoints = [...new Set(PAYROLL_ITEM_DEFS.map(d => d.endpoint))];
+  const results = await Promise.all(endpoints.map(ep => fetchAllBatch(`/api4/${ep}-batch`, biz)));
+  const out = {};
+  endpoints.forEach((ep, i) => {
+    out[ep] = (results[i] || []).map(it => ({ key: it.key, value: it.item || {} }));
+  });
+  return out;
+}
+
+async function loadPayrollItemsTab() {
+  const panel = document.getElementById('tab-payroll');
+  panel.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading payroll items…</span></div>`;
+  try {
+    _payrollItemsCache = await fetchPayrollItems(App.currentBusiness);
+    renderPayrollItemsTab(panel);
+  } catch (err) {
+    panel.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
+  }
+}
+
+function renderPayrollItemsTab(panel) {
+  const groups = ['Earnings', 'Deductions', 'Employer Contributions'];
+  panel.innerHTML = `
+    <div class="alert alert-info" style="margin-bottom:12px;font-size:11px;">
+      Click <strong>Install</strong> to create the standard payslip item in Manager AND tag it with the
+      matching BIR reporting category in one step. Use this on a fresh business — for existing items,
+      use the <strong>Payslip items</strong> tab to map manually instead.
+    </div>
+    ${groups.map(g => renderPayrollGroup(g)).join('')}`;
+}
+
+function findInstalledItem(def) {
+  const items = _payrollItemsCache[def.endpoint] || [];
+  return items.find(it => (it.value.reportingCategory || '') === def.category);
+}
+
+function renderPayrollGroup(groupName) {
+  const rows = PAYROLL_ITEM_DEFS.filter(d => d.group === groupName).map(def => {
+    const installed = findInstalledItem(def);
+    const status = installed
+      ? `<span style="color:#27ae60;font-weight:600;">✓ ${escHtml(installed.value.name || installed.value.Name || def.name)}</span>`
+      : `<span style="color:#9ca3af;">— not installed —</span>`;
+    const btn = installed
+      ? ''
+      : `<button class="btn btn-outline btn-sm" onclick="installPayrollItem(${JSON.stringify(def).replace(/"/g,'&quot;')})">✦ Install</button>`;
+    return `<tr style="border-bottom:1px solid #f0f0f0;">
+      <td style="padding:9px 14px;font-size:12px;font-weight:600;color:#0d1b3e;">${escHtml(def.name)}</td>
+      <td style="padding:6px 14px;font-size:12px;">${status}</td>
+      <td style="padding:6px 10px;width:110px;">${btn}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="card" style="margin-bottom:14px;">
+    <div class="card-title">${escHtml(groupName)}</div>
+    <table class="data-table">
+      <thead><tr><th style="padding:10px 14px;font-size:11px;">BIR Category</th><th style="padding:10px 14px;font-size:11px;">Manager Payslip Item</th><th style="padding:10px 14px;font-size:11px;width:110px;"></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+async function installPayrollItem(def) {
+  const btn = event.target; btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    await apiRequest('POST', `/api4/${def.endpoint}`, {
+      business: App.currentBusiness,
+      value: { name: def.name, reportingCategory: def.category },
+    });
+    _payrollItemsCache = await fetchPayrollItems(App.currentBusiness);
+    renderPayrollItemsTab(document.getElementById('tab-payroll'));
+    showToast(`✅ "${def.name}" installed.`, 'success');
+  } catch (err) {
+    showToast(`❌ ${err.message}`, 'err');
+    btn.disabled = false; btn.textContent = '✦ Install';
+  }
 }
 
 // ── TAB: CUSTOMERS / SUPPLIERS ────────────────────────────────

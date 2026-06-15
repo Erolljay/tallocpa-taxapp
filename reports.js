@@ -127,8 +127,8 @@ const REPORTS = [
   },
   {
     id: 'b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5',
-    name: 'BIR Form 2316 – Certificate of Compensation',
-    file: '2316.html',
+    name: '1604-C – Alphalist of Employees',
+    file: 'alphalist.html',
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,

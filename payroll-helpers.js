@@ -1,0 +1,245 @@
+/* ============================================================
+   Tallo CPA – BIR Tax App
+   payroll-helpers.js – Shared payroll aggregation engine for
+                         1601-C, 1604-C Alphalist, and BIR Form 2316.
+                         Maps Manager payslips to BIR reporting
+                         categories (see custom-fields.js PAYSLIP_ITEM_TYPES)
+                         and computes withholding tax per the TRAIN/
+                         CREATE graduated table.
+   ============================================================ */
+
+// ── BIR REPORTING CATEGORY IDS (must match custom-fields.js) ───
+const PH_CAT = {
+  BASIC:        'ph-bir-earn-01',
+  OT:           'ph-bir-earn-02',
+  HOLIDAY:      'ph-bir-earn-03',
+  NIGHT_DIFF:   'ph-bir-earn-04',
+  HAZARD:       'ph-bir-earn-05',
+  THIRTEENTH:   'ph-bir-earn-06',
+  DE_MINIMIS:   'ph-bir-earn-07',
+  OTHER_TAXABLE:'ph-bir-earn-08',
+  SEPARATION:   'ph-bir-earn-09',
+  COMMISSION:   'ph-bir-earn-10',
+  PROFIT_SHARE: 'ph-bir-earn-11',
+  DIRECTOR_FEE: 'ph-bir-earn-12',
+  WTC:          'ph-bir-ded-01',
+  SSS_EE:       'ph-bir-ded-02',
+  PHIC_EE:      'ph-bir-ded-03',
+  HDMF_EE:      'ph-bir-ded-04',
+};
+
+// MWE-exempt earnings categories (only exempt when employee Tax Status = MWE)
+const MWE_EXEMPT_CATS = [PH_CAT.BASIC, PH_CAT.OT, PH_CAT.HOLIDAY, PH_CAT.NIGHT_DIFF, PH_CAT.HAZARD];
+
+// Categories that are always taxable regardless of MWE status (when not MWE-exempt)
+const TAXABLE_OTHER_CATS = [
+  PH_CAT.OTHER_TAXABLE, PH_CAT.COMMISSION, PH_CAT.PROFIT_SHARE, PH_CAT.DIRECTOR_FEE,
+];
+
+const THIRTEENTH_MONTH_CAP = 90000;
+
+// ── GRADUATED TAX TABLE (TRAIN / CREATE, annual) ────────────────
+const ANNUAL_TAX_TABLE = [
+  { from: 0,        to: 250000,    rate: 0.00, fixed: 0 },
+  { from: 250000,   to: 400000,    rate: 0.15, fixed: 0 },
+  { from: 400000,   to: 800000,    rate: 0.20, fixed: 22500 },
+  { from: 800000,   to: 2000000,   rate: 0.25, fixed: 102500 },
+  { from: 2000000,  to: 8000000,   rate: 0.30, fixed: 402500 },
+  { from: 8000000,  to: Infinity,  rate: 0.35, fixed: 2202500 },
+];
+
+function computeAnnualTax(taxableIncome) {
+  const inc = Math.max(0, Number(taxableIncome) || 0);
+  const bracket = ANNUAL_TAX_TABLE.find(b => inc > b.from && inc <= b.to) || ANNUAL_TAX_TABLE[ANNUAL_TAX_TABLE.length - 1];
+  return bracket.fixed + (inc - bracket.from) * bracket.rate;
+}
+
+// Monthly withholding = annualized-taxable / 12 (simple, consistent approach
+// used for both 1601-C monthly remittance and 1604-C annual reconciliation).
+function computeMonthlyWithholding(monthlyTaxable) {
+  return computeAnnualTax(Number(monthlyTaxable || 0) * 12) / 12;
+}
+
+// ── PAYSLIP ITEM -> BIR CATEGORY MAP (across all 3 item endpoints) ──
+const PAYROLL_ITEM_ENDPOINTS = ['payslip-earnings-item', 'payslip-deduction-item', 'payslip-contribution-item'];
+
+async function getPayslipCategoryMap(biz) {
+  const results = await Promise.all(PAYROLL_ITEM_ENDPOINTS.map(ep => fetchAllBatch(`/api4/${ep}-batch`, biz)));
+  const map = {}; // itemKey -> categoryId
+  results.forEach(items => {
+    (items || []).forEach(it => {
+      const rec = it.item || it.value || {};
+      const cat = rec.reportingCategory || rec.ReportingCategory;
+      if (cat) map[it.key] = cat;
+    });
+  });
+  return map;
+}
+
+// ── EXTRACT CATEGORY AMOUNTS FROM A SINGLE PAYSLIP ─────────────
+// Defensive against Manager field-naming variants (camelCase / PascalCase,
+// "Lines" grouped by type vs a single flat array with a "type" discriminator).
+function extractPayslipLines(payslip) {
+  const groups = [
+    payslip?.earningsLines || payslip?.EarningsLines || [],
+    payslip?.deductionLines || payslip?.DeductionLines || [],
+    payslip?.contributionLines || payslip?.ContributionLines || [],
+  ];
+  let lines = groups.flat().filter(Boolean);
+  if (!lines.length) {
+    lines = payslip?.lines || payslip?.Lines || [];
+  }
+  return lines;
+}
+
+function lineItemKey(line) {
+  const ref = line?.payslipItem ?? line?.PayslipItem ?? line?.earningsItem ?? line?.EarningsItem
+    ?? line?.deductionItem ?? line?.DeductionItem ?? line?.contributionItem ?? line?.ContributionItem
+    ?? line?.item ?? line?.Item;
+  return (ref && typeof ref === 'object') ? (ref.key || ref.Key || '') : (ref || '');
+}
+
+function lineAmount(line) {
+  return Math.abs(Number(line?.amount ?? line?.Amount ?? 0));
+}
+
+function payslipEmployeeKey(payslip) {
+  const ref = payslip?.employee ?? payslip?.Employee;
+  return (ref && typeof ref === 'object') ? (ref.key || ref.Key || '') : (ref || '');
+}
+
+function payslipDate(payslip) {
+  return payslip?.paymentDate || payslip?.PaymentDate || payslip?.payPeriodEnd || payslip?.endDate || payslip?.date || payslip?.Date;
+}
+
+// ── LOAD EMPLOYEES + BIR DATA (TIN, Tax Status, name, etc.) ────
+async function loadEmployeesBIR(biz) {
+  const EF = window.CF && window.CF.EMPLOYEE_FIELDS;
+  const [all, guids] = await Promise.all([fetchAllBatch('/api4/employee-batch', biz), ensureBIRFields(biz)]);
+  const result = {};
+  all.forEach(it => {
+    const rec = it.item || it.value || {};
+    const rawCF = (rec.customFields2 && rec.customFields2.strings) || {};
+    const cf = parseBIRBlob(rawCF, guids && guids.emp, 'b1r00003-');
+    const get = idx => (EF && EF[idx]) ? (cf[EF[idx].id] || '') : '';
+    result[it.key] = {
+      name: rec.name || rec.Name || it.key,
+      tin: get(0),
+      taxStatus: get(5) || 'NMWE',
+      lastName: get(10),
+      firstName: get(11),
+      middleName: get(12),
+      address: get(14),
+      zipCode: get(16),
+    };
+  });
+  return result;
+}
+
+// ── BUILD PER-EMPLOYEE, PER-MONTH CATEGORY TOTALS FOR A YEAR ───
+// Returns: { [employeeKey]: { months: [ {catTotals}, x12 (Jan=0) ], year } }
+async function buildPayrollYear(biz, year) {
+  const [payslips, catMap] = await Promise.all([
+    fetchAllBatch('/api4/payslip-batch', biz),
+    getPayslipCategoryMap(biz),
+  ]);
+
+  const byEmployee = {};
+  for (const { item } of payslips) {
+    const dateStr = payslipDate(item);
+    const d = dateStr ? new Date(dateStr) : null;
+    if (!d || isNaN(d) || d.getFullYear() !== year) continue;
+
+    const empKey = payslipEmployeeKey(item);
+    if (!empKey) continue;
+    const month = d.getMonth(); // 0-11
+
+    if (!byEmployee[empKey]) {
+      byEmployee[empKey] = { months: Array.from({ length: 12 }, () => ({})) };
+    }
+    const bucket = byEmployee[empKey].months[month];
+
+    for (const line of extractPayslipLines(item)) {
+      const itemKey = lineItemKey(line);
+      const cat = catMap[itemKey];
+      if (!cat) continue;
+      bucket[cat] = (bucket[cat] || 0) + lineAmount(line);
+    }
+  }
+  return byEmployee;
+}
+
+function sumCats(bucket, cats) {
+  return cats.reduce((a, c) => a + (bucket[c] || 0), 0);
+}
+
+// ── PER-EMPLOYEE MONTHLY 1601-C COMPUTATION ─────────────────────
+// Given an employee's 12-month category buckets and Tax Status (MWE/NMWE),
+// returns an array of 12 objects with the 1601-C Part II line items for
+// that employee for each month, including running 13th-month cap tracking.
+function computeEmployee1601C(months, taxStatus) {
+  const isMWE = taxStatus === 'MWE';
+  let thirteenthYTD = 0; // cumulative 13th-month/other-benefits already treated as non-taxable
+  const out = [];
+
+  for (let m = 0; m < 12; m++) {
+    const b = months[m] || {};
+
+    // Line 14 — Total Amount of Compensation (gross, all categories)
+    const allCats = Object.values(PH_CAT).filter(c => ![PH_CAT.WTC, PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE].includes(c));
+    const line14 = sumCats(b, allCats);
+
+    // Line 15 — Statutory Minimum Wage (MWE only): basic salary
+    const line15 = isMWE ? (b[PH_CAT.BASIC] || 0) : 0;
+
+    // Line 16 — Holiday/OT/Night Diff/Hazard (MWE only)
+    const line16 = isMWE ? sumCats(b, [PH_CAT.OT, PH_CAT.HOLIDAY, PH_CAT.NIGHT_DIFF, PH_CAT.HAZARD]) : 0;
+
+    // Line 17 — 13th Month Pay & Other Benefits, non-taxable portion (cap ₱90,000/yr cumulative)
+    const thirteenthThisMonth = b[PH_CAT.THIRTEENTH] || 0;
+    const remainingCap = Math.max(0, THIRTEENTH_MONTH_CAP - thirteenthYTD);
+    const line17 = Math.min(thirteenthThisMonth, remainingCap);
+    const thirteenthExcess = thirteenthThisMonth - line17;
+    thirteenthYTD += line17;
+
+    // Line 18 — De Minimis Benefits
+    const line18 = b[PH_CAT.DE_MINIMIS] || 0;
+
+    // Line 19 — SSS/GSIS/PHIC/HDMF (employee share)
+    const line19 = sumCats(b, [PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE]);
+
+    // Line 20 — Other Non-Taxable Compensation (separation/retirement pay, assumed exempt)
+    const line20 = b[PH_CAT.SEPARATION] || 0;
+
+    // Line 21 — Total Non-Taxable (sum 15-20)
+    const line21 = line15 + line16 + line17 + line18 + line19 + line20;
+
+    // Line 22 — Total Taxable Compensation (14 less 21)
+    const line22 = line14 - line21;
+
+    // For NMWE: compute this month's withholding tax on taxable comp.
+    // If tax due is zero (taxable comp within ₱250k/yr equivalent), this
+    // employee's taxable comp for the month goes to Line 23 (excluded from
+    // withholding) per BIR Form 1601-C instructions.
+    let line23 = 0, monthlyTaxDue = 0;
+    if (!isMWE && line22 > 0) {
+      monthlyTaxDue = computeMonthlyWithholding(line22);
+      if (monthlyTaxDue <= 0) line23 = line22;
+    }
+    // MWE: any residual taxable comp (e.g. thirteenth-month excess) is still
+    // subject to withholding — not part of Line 23 (Line 23 is "for employees
+    // OTHER THAN MWEs").
+
+    // Line 24 — Net Taxable Compensation
+    const line24 = line22 - line23;
+
+    // Line 25 — Total Taxes Withheld (actual WTC deducted this month, per payroll)
+    const line25 = b[PH_CAT.WTC] || 0;
+
+    out.push({
+      line14, line15, line16, line17, line18, line19, line20, line21, line22, line23, line24, line25,
+      thirteenthExcess, monthlyTaxDue,
+    });
+  }
+  return out;
+}
