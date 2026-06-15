@@ -96,10 +96,14 @@ function filterSupplierTabToPeriod(container) {
 // totals for the quarter (income payment / tax base + tax withheld).
 async function buildQAPRows(biz, start, end) {
   const customAtcMap = loadAtcMapping();
-  const [invItems, paymentItems] = await Promise.all([
+  const [invItems, paymentItems, { tcKeyToAtc, taxCodes }] = await Promise.all([
     fetchAllBatch('/api4/purchase-invoice-batch', biz),
     fetchAllBatch('/api4/payment-batch', biz),
+    getEwtTcMap(biz),
   ]);
+  const tcNameByKey = {};
+  const rateByKey = {};
+  taxCodes.forEach(tc => { tcNameByKey[tc.key] = tc.name; rateByKey[tc.key] = tc.rate; });
 
   const items = [...invItems, ...paymentItems];
   // key = supplierKey|atc
@@ -108,7 +112,7 @@ async function buildQAPRows(biz, start, end) {
   for (const { item } of items) {
     const date = item?.issueDate || item?.Date;
     if (!inRange(date, start, end)) continue;
-    const ewtLines = extractEWT(item, customAtcMap);
+    const ewtLines = extractEWT(item, customAtcMap, tcNameByKey, rateByKey, tcKeyToAtc);
     if (!ewtLines.length) continue;
 
     const suppKey = item?.supplier || item?.Supplier || '';
