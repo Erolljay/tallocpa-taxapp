@@ -76,6 +76,22 @@ async function initSLReport(type) {
   });
 
   document.getElementById('sl-gen').addEventListener('click', () => generateSL(type, biz, setup, outputEl));
+
+  // Customers/Suppliers quick-edit tab
+  const partyType = isSLS ? 'customer' : 'supplier';
+  const partyTab  = isSLS ? 'customers' : 'suppliers';
+  let partyController = null;
+  document.getElementById('sl-tabs')?.addEventListener('click', e => {
+    const btn = e.target.closest('.tab-btn'); if (!btn) return;
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('#sl-tabs .tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    if (tab === partyTab) {
+      const container = document.getElementById(`tab-${partyTab}`);
+      if (!partyController) partyController = CF.mountParty(container, partyType);
+      partyController.refresh();
+    }
+  });
 }
 
 async function generateSL(type, biz, setup, outputEl) {
