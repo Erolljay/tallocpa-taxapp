@@ -18,16 +18,16 @@ const PACKAGES = [
 ];
 
 const VAT_CATEGORIES = [
-  { key: 'sales_taxable',  label: 'Taxable Sales (12%)',       side: 'sales',    defaultName: 'Sales - Output VAT 12%',    rate: 0.12 },
-  { key: 'sales_zero',     label: 'Zero-Rated Sales',          side: 'sales',    defaultName: 'Sales - Zero-Rated',        rate: 0    },
-  { key: 'sales_exempt',   label: 'VAT Exempt Sales',          side: 'sales',    defaultName: 'Sales - VAT Exempt',        rate: 0    },
-  { key: 'purch_capital',  label: 'Input VAT – Capital Goods', side: 'purchase', defaultName: 'Input VAT 12% (Capital Goods)', rate: 0.12 },
-  { key: 'purch_other',    label: 'Input VAT – Other Goods',   side: 'purchase', defaultName: 'Input VAT 12% (Other Goods)',   rate: 0.12 },
-  { key: 'purch_services', label: 'Input VAT – Services',      side: 'purchase', defaultName: 'Input VAT 12% (Services)',      rate: 0.12 },
-  { key: 'purch_zero',     label: 'Zero-Rated Purchases',      side: 'purchase', defaultName: 'Zero-Rated Purchases',      rate: 0    },
-  { key: 'purch_exempt',   label: 'Exempt Purchases',          side: 'purchase', defaultName: 'Purchase - VAT Exempt',     rate: 0    },
-  { key: 'govt_wv012',     label: 'Govt Withholding VAT – Goods (5%)',    side: 'sales', defaultName: 'WV012 – Govt WHT VAT Goods (5%)',    rate: 0.05 },
-  { key: 'govt_wv022',     label: 'Govt Withholding VAT – Services (5%)', side: 'sales', defaultName: 'WV022 – Govt WHT VAT Services (5%)', rate: 0.05 },
+  { key: 'sales_taxable',  label: 'Taxable Sales (12%)',       side: 'sales',    defaultName: 'Sales - Output VAT 12%',    rate: 12 },
+  { key: 'sales_zero',     label: 'Zero-Rated Sales',          side: 'sales',    defaultName: 'Sales - Zero-Rated',        rate: 0  },
+  { key: 'sales_exempt',   label: 'VAT Exempt Sales',          side: 'sales',    defaultName: 'Sales - VAT Exempt',        rate: 0  },
+  { key: 'purch_capital',  label: 'Input VAT – Capital Goods', side: 'purchase', defaultName: 'Input VAT 12% (Capital Goods)', rate: 12 },
+  { key: 'purch_other',    label: 'Input VAT – Other Goods',   side: 'purchase', defaultName: 'Input VAT 12% (Other Goods)',   rate: 12 },
+  { key: 'purch_services', label: 'Input VAT – Services',      side: 'purchase', defaultName: 'Input VAT 12% (Services)',      rate: 12 },
+  { key: 'purch_zero',     label: 'Zero-Rated Purchases',      side: 'purchase', defaultName: 'Zero-Rated Purchases',      rate: 0  },
+  { key: 'purch_exempt',   label: 'Exempt Purchases',          side: 'purchase', defaultName: 'Purchase - VAT Exempt',     rate: 0  },
+  { key: 'govt_wv012',     label: 'Govt Withholding VAT – Goods (5%)',    side: 'sales', defaultName: 'WV012 – Govt WHT VAT Goods (5%)',    rate: 5 },
+  { key: 'govt_wv022',     label: 'Govt Withholding VAT – Services (5%)', side: 'sales', defaultName: 'WV022 – Govt WHT VAT Services (5%)', rate: 5 },
 ];
 
 let _taxCodes = [];
@@ -426,14 +426,19 @@ function vatMapRow(cat, selectedKey) {
 async function installTaxCode(catKey, name, rate, side) {
   const btn = event.target; btn.disabled=true; btn.textContent='⏳…';
   try {
-    const newKey = crypto.randomUUID();
-    await apiRequest('PUT', '/api4/tax-code', {
-      key: newKey,
-      value: { Name: name, Rate: rate },
+    // TaxType: 2 = Input VAT on capital goods, 1 = other input VAT, 0 = output/sales
+    const taxType = (side === 'purchase') ? (catKey === 'purch_capital' ? 2 : 1) : 0;
+    const value = (rate === 0)
+      ? { Name: name, TaxRate: 'ZeroRate', Type: 'SingleRate', Component: [{ TaxType: taxType }] }
+      : { Name: name, TaxRate: 'CustomRate', Type: 'SingleRate', Component: [{ TaxType: taxType, Rate: rate }] };
+    await apiRequest('POST', '/api4/tax-code', {
       business: App.currentBusiness,
+      value,
     });
     const items = await fetchTaxCodes(App.currentBusiness);
     _taxCodes = items.map(r => ({ key: String(r.key||r.Key||''), name: r.Name||r.name||r.key||'' }));
+    const newTc = _taxCodes.find(tc => tc.name === name);
+    const newKey = newTc?.key || '';
     const sel = document.querySelector(`.vm-sel[data-key="${catKey}"]`);
     if (sel) {
       const opts = _taxCodes.map(tc =>
@@ -539,14 +544,17 @@ function ewtMapRow(atc, info, selectedKey) {
 async function installEwtTaxCode(atc, name, rate) {
   const btn = event.target; btn.disabled=true; btn.textContent='⏳…';
   try {
-    const newKey = crypto.randomUUID();
-    await apiRequest('PUT', '/api4/tax-code', {
-      key: newKey,
-      value: { Name: name, Rate: rate },
+    // managerRate = 100 (TotalRate / no Rate field): the line amount entered
+    // in Manager IS the withholding tax amount; the real ATC `rate` (passed
+    // in for display only) is used by the reports to gross up the tax base.
+    await apiRequest('POST', '/api4/tax-code', {
       business: App.currentBusiness,
+      value: { Name: name, TaxRate: 'TotalRate', Type: 'SingleRate', Component: [{ TaxType: 4 }] },
     });
     const items = await fetchTaxCodes(App.currentBusiness);
     _taxCodes = items.map(r => ({ key: String(r.key||r.Key||''), name: r.Name||r.name||r.key||'' }));
+    const newTc = _taxCodes.find(tc => tc.name === name);
+    const newKey = newTc?.key || '';
     const sel = document.querySelector(`.em-sel[data-atc="${atc}"]`);
     if (sel) {
       const opts = _taxCodes.map(tc =>
