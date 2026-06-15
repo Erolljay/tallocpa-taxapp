@@ -5,46 +5,39 @@
    ============================================================ */
 
 // ── ATC MASTER (BIR standard Expanded Withholding Tax codes) ──
+// Kept in sync with EWT_ATC_LIST / TAX_CODE_TEMPLATES in tax-codes.js —
+// these are the same ATC codes offered for installation in Setup > Tax Codes.
 const ATC_MASTER = {
-  // Professional fees
-  'WI010': { desc: 'Professional fees - Individual',              rate: 10 },
-  'WI011': { desc: 'Professional fees - Individual (>P3M/VAT)',    rate: 15 },
-  'WI012': { desc: 'Professional fees - Individual (>P720k)',      rate: 15 },
-  'WC010': { desc: 'Professional fees - Non-individual',           rate: 15 },
-  // Rental
-  'WI100': { desc: 'Rental - Individual',                          rate: 5  },
-  'WC100': { desc: 'Rental - Non-individual',                      rate: 5  },
-  'WI120': { desc: 'Rental - Individual',                          rate: 5  },
-  'WC120': { desc: 'Rental - Non-individual',                      rate: 5  },
-  // Purchase of goods (top withholding agents)
-  'WI158': { desc: 'Purchase of goods - Individual',               rate: 1  },
-  'WC158': { desc: 'Purchase of goods - Non-individual',           rate: 1  },
-  // Purchase of services (top withholding agents)
-  'WI159': { desc: 'Purchase of services - Individual',            rate: 2  },
-  'WC159': { desc: 'Purchase of services - Non-individual',        rate: 2  },
-  // Commissions
-  'WI515': { desc: 'Commission - Individual',                      rate: 10 },
-  'WI516': { desc: 'Commission - Individual (>P3M/VAT)',           rate: 15 },
-  'WC515': { desc: 'Commission - Non-individual',                  rate: 10 },
-  'WC516': { desc: 'Commission - Non-individual (>P3M/VAT)',       rate: 15 },
-  // Contractors
-  'WI108': { desc: 'Income payments to contractors - Individual',  rate: 2  },
-  'WC108': { desc: 'Income payments to contractors - Non-individual', rate: 2 },
-  'WI110': { desc: 'Contractors - Individual',                     rate: 2  },
-  'WC110': { desc: 'Contractors - Non-individual',                 rate: 2  },
-  // Income from real property
-  'WI160': { desc: 'Income payments by real estate - Individual',  rate: 6  },
-  'WC160': { desc: 'Income payments by real estate - Non-individual', rate: 6 },
-  // Tolling fee
-  'WC140': { desc: 'Tolling fees paid to refineries',               rate: 5 },
-  // Additional income payments
-  'WI530': { desc: 'Gross payments to embalmers - Individual',     rate: 1  },
-  'WC535': { desc: 'Payments by pre-need companies to funeral parlors', rate: 1 },
-  // Income payment made by top withholding agents
-  'WI640': { desc: 'Income payments by GOCC to suppliers of goods', rate: 1 },
-  'WC640': { desc: 'Income payments by GOCC to suppliers of goods', rate: 1 },
-  'WI157': { desc: 'Income payments by GOCC to suppliers of services', rate: 2 },
-  'WC157': { desc: 'Income payments by GOCC to suppliers of services', rate: 2 },
+  // Individual
+  'WI010': { desc: 'Professional fees, ≤3M',               rate: 5  },
+  'WI011': { desc: 'Professional fees, >3M/VAT',           rate: 10 },
+  'WI060': { desc: 'Bookkeeping agents, ≤3M',              rate: 5  },
+  'WI061': { desc: 'Bookkeeping agents, >3M/VAT',          rate: 10 },
+  'WI100': { desc: 'Rentals - property/personal',          rate: 5  },
+  'WI120': { desc: 'Contractors',                          rate: 2  },
+  'WI150': { desc: 'Medical practitioners, >3M/VAT',       rate: 10 },
+  'WI151': { desc: 'Medical practitioners, ≤3M',           rate: 5  },
+  'WI157': { desc: 'Govt/GOCC supplier - services',        rate: 2  },
+  'WI158': { desc: 'Top WA supplier - goods',              rate: 1  },
+  'WI160': { desc: 'Top WA supplier - services',           rate: 2  },
+  'WI630': { desc: 'Minerals/quarry (non-BSP)',            rate: 5  },
+  'WI640': { desc: 'Govt/GOCC supplier - goods',           rate: 1  },
+  // Non-Individual
+  'WC010': { desc: 'Professional fees, ≤720K',             rate: 10 },
+  'WC011': { desc: 'Professional fees, >720K',             rate: 15 },
+  'WC100': { desc: 'Rentals - property/personal',          rate: 5  },
+  'WC120': { desc: 'Contractors',                          rate: 2  },
+  'WC157': { desc: 'Govt/GOCC supplier - services',        rate: 2  },
+  'WC158': { desc: 'Top WA supplier - goods',              rate: 1  },
+  'WC160': { desc: 'Top WA supplier - services',           rate: 2  },
+  'WC640': { desc: 'Govt/GOCC supplier - goods',           rate: 1  },
+  // Government withholding (final VAT / percentage tax)
+  'WV012': { desc: 'Final withholding VAT on goods',       rate: 5  },
+  'WV022': { desc: 'Final withholding VAT on services',    rate: 5  },
+  'WB080': { desc: 'Sec. 109BB percentage tax (Govt)',      rate: 3  },
+  // Final withholding tax
+  'WI250': { desc: 'Royalties - citizens, residents, NRAETB',          rate: 20 },
+  'WC250': { desc: 'Royalties - domestic & resident foreign corps',    rate: 20 },
 };
 
 // User-defined tax code → ATC mapping (loaded from localStorage, per browser)
@@ -74,16 +67,30 @@ function resolveAtc(taxCodeName, customAtcMap) {
 }
 
 // Extract EWT lines from a purchase invoice / payment item.
+// `tcNameByKey` maps Manager tax-code GUID keys -> tax code names
+// (api4 batch endpoints return line.taxCode as a bare GUID string,
+// not an object, so the name must be looked up separately).
 // Returns array of { atc, desc, rate, base, ewt }
-function extractEWT(item, customAtcMap) {
+// `rateByKey` maps Manager tax-code GUID keys -> the tax code's Rate field.
+// Manager has no native "withholding tax" line type, so EWT is recorded as
+// a regular line using a 0% pass-through tax code, where the line amount
+// IS the tax withheld (not the tax base). When the Manager tax code's rate
+// is 0, we treat the line amount as the EWT amount itself and gross it up
+// using the real ATC rate to recover the tax base.
+function extractEWT(item, customAtcMap, tcNameByKey, rateByKey) {
   const lines = item?.lines || item?.Lines || item?.purchaseInvoiceLines || [];
   const result = {};
+  tcNameByKey = tcNameByKey || {};
+  rateByKey = rateByKey || {};
 
   lines.forEach(line => {
     const tcRaw  = line?.taxCode ?? line?.TaxCode ?? '';
-    const tcName = (tcRaw && typeof tcRaw === 'object')
-      ? (tcRaw.name || tcRaw.Name || '')
-      : (line?.taxCodeName || line?.TaxCodeName || tcRaw || '');
+    let tcName;
+    if (tcRaw && typeof tcRaw === 'object') {
+      tcName = tcRaw.name || tcRaw.Name || '';
+    } else {
+      tcName = line?.taxCodeName || line?.TaxCodeName || tcNameByKey[tcRaw] || tcRaw || '';
+    }
     const atcInfo = resolveAtc(tcName, customAtcMap);
     if (!atcInfo) return;
 
@@ -93,15 +100,28 @@ function extractEWT(item, customAtcMap) {
     if (line?.discountPercentage) lineTotal *= (1 - Number(line.discountPercentage) / 100);
     lineTotal -= Number(line?.discountAmount || 0);
 
-    const taxBase = Math.abs(lineTotal);
-    const taxAmt  = Number(line?.taxAmount ?? line?.TaxAmount ?? (taxBase * atcInfo.rate / 100));
+    const amount = Math.abs(lineTotal);
+    const mgrRate = Number(rateByKey[tcRaw] ?? 0);
+
+    let rate, taxBase, taxAmt;
+    if (mgrRate > 0 && mgrRate < 100) {
+      rate = mgrRate;
+      taxBase = amount;
+      taxAmt = Number(line?.taxAmount ?? line?.TaxAmount ?? (taxBase * rate / 100));
+    } else {
+      // mgrRate is 0 (legacy pass-through) or 100 (standard pass-through
+      // workaround): the line amount IS the EWT amount, so gross it up.
+      rate = Number(atcInfo.rate || 0);
+      taxAmt = amount;
+      taxBase = rate > 0 ? amount / (rate / 100) : amount;
+    }
 
     const atc = atcInfo.atc;
     if (!result[atc]) {
-      result[atc] = { atc, desc: atcInfo.desc, rate: atcInfo.rate, base: 0, ewt: 0 };
+      result[atc] = { atc, desc: atcInfo.desc, rate, base: 0, ewt: 0 };
     }
     result[atc].base += taxBase;
-    result[atc].ewt  += Math.abs(taxAmt) || (taxBase * atcInfo.rate / 100);
+    result[atc].ewt  += Math.abs(taxAmt);
   });
 
   return Object.values(result);
