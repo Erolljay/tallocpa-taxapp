@@ -351,22 +351,25 @@ async function generate() {
   try {
     const { vm, rateByKey } = await getVatMapping(biz);
     // Fetch invoices + receipts in parallel
-    const [salesItems, purchItems, receiptItems] = await Promise.all([
+    const [salesItems, purchItems, receiptItems, paymentItems] = await Promise.all([
       fetchAllBatch('/api4/sales-invoice-batch',    biz),
       fetchAllBatch('/api4/purchase-invoice-batch', biz),
       fetchAllBatch('/api4/receipt-batch',          biz),
+      fetchAllBatch('/api4/payment-batch',          biz),
     ]);
 
     const sales    = salesItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
     const purch    = purchItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
     const receipts = receiptItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
+    const payments = paymentItems.filter(({ item }) => inRange(item?.issueDate || item?.Date, start, end));
 
     const custMap = await loadPartyBIR(biz, 'customer');
 
     // ── PART IV: SALES ────────────────────────────────────────
     let vatableSales = 0, zeroRated = 0, exemptSales = 0, outputTax = 0;
     const govtWVRows = [];
-    for (const { item } of sales) {
+    // Include receipts (cash sales) that carry sales tax codes directly on their lines
+    for (const { item } of [...sales, ...receipts]) {
       for (const line of (item?.lines || item?.Lines || [])) {
         const tc = line?.taxCode || line?.TaxCode || '';
         if (!tc) continue;
@@ -393,7 +396,8 @@ async function generate() {
     // ── PART IV: PURCHASES ────────────────────────────────────
     let capGoods = 0, otherGoods = 0, services = 0, purZero = 0, purExempt = 0;
     let capTax = 0, otherTax = 0, svcTax = 0;
-    for (const { item } of purch) {
+    // Include payments (cash purchases/expenses) that carry purchase tax codes directly on their lines
+    for (const { item } of [...purch, ...payments]) {
       for (const line of (item?.lines || item?.Lines || [])) {
         const tc = line?.taxCode || line?.TaxCode || '';
         if (!tc) continue;
