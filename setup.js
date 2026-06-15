@@ -124,6 +124,14 @@ function renderBusinessInfoTab(setup) {
             <label class="form-label">RDO Code</label>
             <input class="form-input" id="si-rdo" placeholder="e.g., 083" value="${escHtml(setup.rdoCode||'')}">
           </div>
+          <div class="form-group">
+            <label class="form-label">Authorized Representative</label>
+            <input class="form-input" id="si-rep-name" placeholder="e.g., Juan T. Dela Cruz" value="${escHtml(setup.authorizedRepName||'')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Representative's Title/Designation</label>
+            <input class="form-input" id="si-rep-title" placeholder="e.g., President" value="${escHtml(setup.authorizedRepTitle||'')}">
+          </div>
         </div>
       </div>
 
@@ -215,6 +223,8 @@ function saveBusinessInfo(e) {
     address:     document.getElementById('si-address').value.trim(),
     zipCode:     document.getElementById('si-zip').value.trim(),
     rdoCode:     document.getElementById('si-rdo').value.trim(),
+    authorizedRepName:  document.getElementById('si-rep-name').value.trim(),
+    authorizedRepTitle: document.getElementById('si-rep-title').value.trim(),
     classification: cls,
     industryClassification: document.getElementById('si-industry').value.trim(),
     incomeTaxType: document.querySelector('input[name=incomeTaxType]:checked')?.value || 'graduated',
