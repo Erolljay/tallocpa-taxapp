@@ -86,15 +86,6 @@ const REPORTS = [
     available: true,
   },
   {
-    id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
-    name: 'SAWT – Summary Alphalist of Withholding Taxes',
-    file: 'sawt.html',
-    group: 'Expanded Withholding Tax',
-    req: 'expanded',
-    phase: 2,
-    available: false,
-  },
-  {
     id: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4',
     name: 'BIR Form 2307 – Certificate of Creditable WT',
     file: '2307.html',
@@ -150,6 +141,16 @@ const REPORTS = [
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
+    available: false,
+  },
+
+  {
+    id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
+    name: 'SAWT – Summary Alphalist of Withholding Taxes',
+    file: 'sawt.html',
+    group: 'Income Tax',
+    req: 'individual',
+    phase: 3,
     available: false,
   },
 
