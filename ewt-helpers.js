@@ -77,11 +77,12 @@ function resolveAtc(taxCodeName, customAtcMap) {
 // IS the tax withheld (not the tax base). When the Manager tax code's rate
 // is 0, we treat the line amount as the EWT amount itself and gross it up
 // using the real ATC rate to recover the tax base.
-function extractEWT(item, customAtcMap, tcNameByKey, rateByKey) {
+function extractEWT(item, customAtcMap, tcNameByKey, rateByKey, ewtMap) {
   const lines = item?.lines || item?.Lines || item?.purchaseInvoiceLines || [];
   const result = {};
   tcNameByKey = tcNameByKey || {};
   rateByKey = rateByKey || {};
+  ewtMap = ewtMap || {};
 
   lines.forEach(line => {
     const tcRaw  = line?.taxCode ?? line?.TaxCode ?? '';
@@ -91,7 +92,9 @@ function extractEWT(item, customAtcMap, tcNameByKey, rateByKey) {
     } else {
       tcName = line?.taxCodeName || line?.TaxCodeName || tcNameByKey[tcRaw] || tcRaw || '';
     }
-    const atcInfo = resolveAtc(tcName, customAtcMap);
+    // Prefer the explicit ATC mapping (Setup > Tax Codes), keyed by the
+    // Manager tax code's GUID; fall back to name-based matching.
+    const atcInfo = (tcRaw && ewtMap[tcRaw]) || resolveAtc(tcName, customAtcMap);
     if (!atcInfo) return;
 
     const qty       = Number(line?.qty ?? line?.Qty ?? line?.quantity ?? 1);
@@ -111,7 +114,7 @@ function extractEWT(item, customAtcMap, tcNameByKey, rateByKey) {
     } else {
       // mgrRate is 0 (legacy pass-through) or 100 (standard pass-through
       // workaround): the line amount IS the EWT amount, so gross it up.
-      rate = Number(atcInfo.rate || 0);
+      rate = Number(ATC_MASTER[atcInfo.atc]?.rate ?? atcInfo.rate ?? 0);
       taxAmt = amount;
       taxBase = rate > 0 ? amount / (rate / 100) : amount;
     }
