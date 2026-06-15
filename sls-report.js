@@ -123,12 +123,12 @@ async function generateSL(type, biz, setup, outputEl) {
     : parseInt(document.getElementById('sl-quarter').value, 10);
 
   const { start, end } = getPeriodDates(ptype, period, year);
-  const { vm } = await getVatMapping(biz);
+  const { vm, rateByKey } = await getVatMapping(biz);
 
   try {
     const rows = isSLS
-      ? await buildSLSRows(biz, start, end, vm)
-      : await buildSLPRows(biz, start, end, vm);
+      ? await buildSLSRows(biz, start, end, vm, rateByKey)
+      : await buildSLPRows(biz, start, end, vm, rateByKey);
 
     _slRows = rows;
 
@@ -152,23 +152,16 @@ async function generateSL(type, biz, setup, outputEl) {
 }
 
 // ── BUILD ROWS ────────────────────────────────────────────────
-// Manager's API returns line items under either `Lines` or `lines`, and the
-// tax code reference as either a plain key string or an object {key, name}.
+// Manager's API returns line items under either `Lines` or `lines`.
 function getLines(item) {
   return item?.Lines || item?.lines || [];
 }
 function getLineTaxCodeKey(line) {
-  const tc = line?.TaxCode ?? line?.taxCode ?? '';
+  const tc = line?.taxCode ?? line?.TaxCode ?? '';
   return (tc && typeof tc === 'object') ? (tc.key || tc.Key || '') : (tc || '');
 }
-function getLineAmount(line) {
-  return Math.abs(Number(line?.Amount ?? line?.amount ?? 0));
-}
-function getLineTax(line) {
-  return Math.abs(Number(line?.Tax ?? line?.tax ?? 0));
-}
 
-async function buildSLSRows(biz, start, end, vm) {
+async function buildSLSRows(biz, start, end, vm, rateByKey) {
   const [invItems, receiptItems, custMap] = await Promise.all([
     fetchAllBatch('/api4/sales-invoice-batch', biz),
     fetchAllBatch('/api4/receipt-batch', biz),
@@ -180,18 +173,18 @@ async function buildSLSRows(biz, start, end, vm) {
 
   for (const { key: invKey, item } of items) {
     if (!inRange(item?.issueDate || item?.Date, start, end)) continue;
-    const ck   = item?.Customer || '';
+    const ck   = item?.customer || item?.Customer || '';
     const cd   = custMap[ck] || {};
     const name = cd.companyName || [cd.lastName, cd.firstName, cd.middleName].filter(Boolean).join(', ') || item?.CustomerName || ck;
 
     let taxable = 0, zeroRated = 0, exempt = 0, outputVAT = 0;
     for (const line of getLines(item)) {
-      const tc  = getLineTaxCodeKey(line);
-      const amt = getLineAmount(line);
-      const tax = getLineTax(line);
-      if (tc && tc === vm.sales_taxable)      { taxable   += amt; outputVAT += tax || amt * 0.12; }
-      else if (tc && tc === vm.sales_zero)    { zeroRated += amt; }
-      else if (tc && tc === vm.sales_exempt)  { exempt    += amt; }
+      const tc = getLineTaxCodeKey(line);
+      if (!tc) continue;
+      const { net, tax } = lineAmounts(item, line, rateByKey);
+      if (tc === vm.sales_taxable)      { taxable   += net; outputVAT += tax; }
+      else if (tc === vm.sales_zero)    { zeroRated += net; }
+      else if (tc === vm.sales_exempt)  { exempt    += net; }
     }
     if (taxable + zeroRated + exempt === 0) continue;
     rows.push({
@@ -207,7 +200,7 @@ async function buildSLSRows(biz, start, end, vm) {
   return rows.sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
-async function buildSLPRows(biz, start, end, vm) {
+async function buildSLPRows(biz, start, end, vm, rateByKey) {
   const [invItems, paymentItems, suppMap] = await Promise.all([
     fetchAllBatch('/api4/purchase-invoice-batch', biz),
     fetchAllBatch('/api4/payment-batch', biz),
@@ -219,19 +212,19 @@ async function buildSLPRows(biz, start, end, vm) {
 
   for (const { key: invKey, item } of items) {
     if (!inRange(item?.issueDate || item?.Date, start, end)) continue;
-    const sk   = item?.Supplier || '';
+    const sk   = item?.supplier || item?.Supplier || '';
     const sd   = suppMap[sk] || {};
     const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sk;
 
     let capGoods = 0, otherGoods = 0, services = 0, zeroRated = 0, exempt = 0, inputVAT = 0;
     for (const line of getLines(item)) {
-      const tc  = getLineTaxCodeKey(line);
-      const amt = getLineAmount(line);
-      const tax = getLineTax(line);
-      if (tc && tc === vm.purch_capital)      { capGoods  += amt; inputVAT += tax || amt * 0.12; }
-      else if (tc && tc === vm.purch_other)   { otherGoods += amt; inputVAT += tax || amt * 0.12; }
-      else if (tc && tc === vm.purch_services){ services   += amt; inputVAT += tax || amt * 0.12; }
-      else if (tc && tc === vm.purch_zero)    { zeroRated  += amt; }
+      const tc = getLineTaxCodeKey(line);
+      if (!tc) continue;
+      const { net, tax } = lineAmounts(item, line, rateByKey);
+      if (tc === vm.purch_capital)      { capGoods   += net; inputVAT += tax; }
+      else if (tc === vm.purch_other)   { otherGoods += net; inputVAT += tax; }
+      else if (tc === vm.purch_services){ services   += net; inputVAT += tax; }
+      else if (tc === vm.purch_zero)    { zeroRated  += net; }
       else if (tc && tc === vm.purch_exempt)  { exempt     += amt; }
     }
     if (capGoods + otherGoods + services + zeroRated + exempt === 0) continue;
