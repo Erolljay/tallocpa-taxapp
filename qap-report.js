@@ -330,7 +330,29 @@ function exportQAPExcel(rows, periodLabel, setup, periodEnd, formType) {
 //   HQAP,H<formType>,<TIN9>,<branch4>,"<agent name>",<startMM/YYYY>,<RDO>
 //   D1,<formType>,<seq>,<payeeTIN9>,<payeeBranch4>,"<payee name>",<lname>,<fname>,<mname>,<MM1/YYYY>,<ATC>,<rate>,<amt1>,<tax1>,<MM2/YYYY>,<amt2>,<tax2>,<MM3/YYYY>,<amt3>,<tax3>
 //   C1,<formType>,<TIN9>,<branch4>,<endMM/YYYY>,<totalAmount>,<totalTax>
+// BIR's Validation Module rejects DAT files with missing/invalid payee TINs
+// (defaults to 000000000) or branch codes — warn before exporting.
+function validateQAPDat(rows) {
+  const problems = [];
+  rows.forEach(r => {
+    const s = _qapSuppMap[r.suppKey] || {};
+    const name = s.companyName || s.name || r.suppKey;
+    const digits = (s.tin || '').replace(/\D/g, '');
+    const issues = [];
+    if (digits.length !== 9) issues.push('missing/invalid TIN');
+    if (!/^\d{4}$/.test(s.branchCode || '')) issues.push('missing/invalid branch code');
+    if (issues.length) problems.push(`${name}: ${issues.join(', ')}`);
+  });
+  if (!problems.length) return true;
+  return confirm(
+    `Warning: the following payees have data issues that may cause BIR Validation Module errors:\n\n` +
+    problems.join('\n') +
+    `\n\nThese will be exported as 000000000 / 0001. Continue generating the DAT file anyway?`
+  );
+}
+
 function exportQAPDat(rows, setup, periodEnd, formType) {
+  if (!validateQAPDat(rows)) return;
   const ourTin = tin9(setup.tin);
   const rdo    = (setup.rdoCode || '').padStart(3, '0').substring(0, 3);
 
