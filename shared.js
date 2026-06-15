@@ -498,6 +498,28 @@ async function getVatMapping(biz) {
   return { vm, rateByKey };
 }
 
+// Compute net (tax-exclusive) amount and tax amount for an invoice/receipt/payment line.
+function lineAmounts(item, line, rateByKey) {
+  const qty       = Number(line?.qty ?? 1);
+  const unitPrice = Number(line?.salesUnitPrice ?? line?.purchaseUnitPrice ?? line?.unitPrice ?? 0);
+  let gross = qty * unitPrice;
+  if (line?.discountPercentage) gross *= (1 - Number(line.discountPercentage) / 100);
+  gross -= Number(line?.discountAmount || 0);
+
+  const tcKey = line?.taxCode || line?.TaxCode || '';
+  const rate  = Number(rateByKey?.[tcKey] ?? 0);
+  const includesTax = !!item?.amountsIncludeTax;
+
+  let net, tax;
+  if (rate) {
+    if (includesTax) { net = gross / (1 + rate / 100); tax = gross - net; }
+    else             { net = gross; tax = gross * rate / 100; }
+  } else {
+    net = gross; tax = 0;
+  }
+  return { net: Math.abs(net), tax: Math.abs(tax), gross: Math.abs(gross) };
+}
+
 // ── UTILITIES ────────────────────────────────────────────────
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
