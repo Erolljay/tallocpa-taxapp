@@ -179,7 +179,7 @@ async function buildSLSRows(biz, start, end, vm) {
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
-    if (!inRange(item?.Date, start, end)) continue;
+    if (!inRange(item?.issueDate || item?.Date, start, end)) continue;
     const ck   = item?.Customer || '';
     const cd   = custMap[ck] || {};
     const name = cd.companyName || [cd.lastName, cd.firstName, cd.middleName].filter(Boolean).join(', ') || item?.CustomerName || ck;
@@ -195,7 +195,7 @@ async function buildSLSRows(biz, start, end, vm) {
     }
     if (taxable + zeroRated + exempt === 0) continue;
     rows.push({
-      date: item.Date, reference: item.Reference || item.InvoiceNumber || '',
+      date: item.issueDate || item.Date, reference: item.reference || item.Reference || item.invoiceNumber || item.InvoiceNumber || '',
       partyKey: ck,
       name, tin: cd.tin || '', address: [cd.address1, cd.address2].filter(Boolean).join(', '),
       companyName: cd.companyName || '', lastName: cd.lastName || '', firstName: cd.firstName || '', middleName: cd.middleName || '',
@@ -218,7 +218,7 @@ async function buildSLPRows(biz, start, end, vm) {
   const rows    = [];
 
   for (const { key: invKey, item } of items) {
-    if (!inRange(item?.Date, start, end)) continue;
+    if (!inRange(item?.issueDate || item?.Date, start, end)) continue;
     const sk   = item?.Supplier || '';
     const sd   = suppMap[sk] || {};
     const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sk;
@@ -236,7 +236,7 @@ async function buildSLPRows(biz, start, end, vm) {
     }
     if (capGoods + otherGoods + services + zeroRated + exempt === 0) continue;
     rows.push({
-      date: item.Date, reference: item.Reference || item.InvoiceNumber || '',
+      date: item.issueDate || item.Date, reference: item.reference || item.Reference || item.invoiceNumber || item.InvoiceNumber || '',
       partyKey: sk,
       name, tin: sd.tin || '', address: [sd.address1, sd.address2].filter(Boolean).join(', '),
       companyName: sd.companyName || '', lastName: sd.lastName || '', firstName: sd.firstName || '', middleName: sd.middleName || '',
