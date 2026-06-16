@@ -73,9 +73,9 @@ async function getPayslipCategoryMap(biz) {
 // "Lines" grouped by type vs a single flat array with a "type" discriminator).
 function extractPayslipLines(payslip) {
   const groups = [
-    payslip?.earningsLines || payslip?.EarningsLines || [],
-    payslip?.deductionLines || payslip?.DeductionLines || [],
-    payslip?.contributionLines || payslip?.ContributionLines || [],
+    payslip?.earningsLines || payslip?.EarningsLines || payslip?.earnings || payslip?.Earnings || [],
+    payslip?.deductionLines || payslip?.DeductionLines || payslip?.deductions || payslip?.Deductions || [],
+    payslip?.contributionLines || payslip?.ContributionLines || payslip?.contributions || payslip?.Contributions || [],
   ];
   let lines = groups.flat().filter(Boolean);
   if (!lines.length) {
