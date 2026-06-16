@@ -35,10 +35,6 @@ async function init1601CReport() {
   document.getElementById('c1601-gen').addEventListener('click', () => generate1601C(biz, setup, outputEl));
 }
 
-function tinDashed1601(t) {
-  const d = (t || '').replace(/\D/g, '').padEnd(9, '0').substring(0, 9);
-  return `${d.substring(0,3)}-${d.substring(3,6)}-${d.substring(6,9)}`;
-}
 
 async function generate1601C(biz, setup, outputEl) {
   outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching payroll data…</span></div>`;

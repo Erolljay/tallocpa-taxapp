@@ -112,6 +112,11 @@ function payslipDate(payslip) {
   return payslip?.paymentDate || payslip?.PaymentDate || payslip?.payPeriodEnd || payslip?.endDate || payslip?.date || payslip?.Date;
 }
 
+function tinDashed1601(t) {
+  const d = (t || '').replace(/\D/g, '').padEnd(9, '0').substring(0, 9);
+  return `${d.substring(0,3)}-${d.substring(3,6)}-${d.substring(6,9)}`;
+}
+
 // ── LOAD EMPLOYEES + BIR DATA (TIN, Tax Status, name, etc.) ────
 async function loadEmployeesBIR(biz) {
   const EF = window.CF && window.CF.EMPLOYEE_FIELDS;
