@@ -658,6 +658,34 @@
 
   // ---- PAYSLIP ITEMS SECTION ----
 
+  var PAYSLIP_SUGGESTED_NAMES = {
+    'ph-bir-earn-01': ['Basic Salary','Monthly Salary','Basic Pay','Daily Wage'],
+    'ph-bir-earn-02': ['Overtime Pay','OT Pay (regular)','OT Pay (holiday)','OT Pay (rest day)'],
+    'ph-bir-earn-03': ['Holiday Pay','Regular Holiday Pay','Special Holiday Pay'],
+    'ph-bir-earn-04': ['Night Differential','Night Shift Differential'],
+    'ph-bir-earn-05': ['Hazard Pay','Danger Pay'],
+    'ph-bir-earn-06': ['13th Month Pay','14th Month Pay','Christmas Bonus','Mid-Year Bonus','Productivity Incentive Bonus','Loyalty Bonus','Anniversary Bonus','Performance Bonus','Rice Allowance (excess over limit)','Other Benefits (non-taxable portion)'],
+    'ph-bir-earn-07': ['Rice Allowance (within ₱2,000/mo)','Clothing Allowance (within ₱6,000/yr)','Medical Allowance (within ₱10,000/yr)','Laundry Allowance (within ₱300/mo)','Achievement Award (within ₱10,000/yr)','Cash Gift (within ₱5,000/yr)','CBA/Productivity Benefit (within ₱10,000/yr)','Meal Allowance – OT/Night (within 25% min wage)'],
+    'ph-bir-earn-08': ['Living Allowance','Transportation Allowance','Communication Allowance','Representation Allowance','Other Taxable Allowance'],
+    'ph-bir-earn-09': ['Separation Pay','Retirement Pay','Terminal Pay'],
+    'ph-bir-earn-10': ['Commission','Sales Commission','Agent Commission'],
+    'ph-bir-earn-11': ['Profit Sharing','Year-End Profit Share'],
+    'ph-bir-earn-12': ["Director's Fee","Board Director's Fee"],
+    'ph-bir-ded-01': ['Withholding Tax on Compensation','Income Tax Withheld'],
+    'ph-bir-ded-02': ['SSS Employee Contribution','SSS Premium'],
+    'ph-bir-ded-03': ['PhilHealth Employee Contribution','PhilHealth Premium'],
+    'ph-bir-ded-04': ['Pag-IBIG Employee Contribution','HDMF Contribution'],
+    'ph-bir-con-01': ['SSS Employer Share','SSS Employer Contribution'],
+    'ph-bir-con-02': ['PhilHealth Employer Share','PhilHealth Employer Contribution'],
+    'ph-bir-con-03': ['Pag-IBIG Employer Share','HDMF Employer Contribution'],
+  };
+
+  var PAYSLIP_TYPE_ENDPOINT = {
+    earnings:      'payslip-earnings-item',
+    deductions:    'payslip-deduction-item',
+    contributions: 'payslip-contribution-item',
+  };
+
   function mountPayslipItemsSection(container) {
     var caches = {};
 
@@ -681,12 +709,89 @@
       renderPayslipTables();
     }
 
+    function buildCreatorHTML() {
+      var firstType = PAYSLIP_ITEM_TYPES[0];
+      var firstCat  = firstType.categories[0] || {};
+      var typeOpts = PAYSLIP_ITEM_TYPES.map(function(t) {
+        return '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>';
+      }).join('');
+      var catOpts = firstType.categories.map(function(c) {
+        return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>';
+      }).join('');
+      var suggestOpts = (PAYSLIP_SUGGESTED_NAMES[firstCat.id] || []).map(function(s) {
+        return '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+      }).join('');
+      return '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:18px;">' +
+        '<div style="font-size:12px;font-weight:700;color:#0d1b3e;margin-bottom:10px;">➕ Create New Payslip Item</div>' +
+        '<div style="font-size:11px;color:#6b7280;margin-bottom:10px;">For items that don\'t exist in Manager yet. Existing items can be mapped using the dropdowns below.</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Type</label>' +
+            '<select id="psi-type" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;min-width:160px;" onchange="window._psiOnType()">' + typeOpts + '</select></div>' +
+          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">BIR Category</label>' +
+            '<select id="psi-cat" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;min-width:220px;" onchange="window._psiOnCat()">' + catOpts + '</select></div>' +
+          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Item Name</label>' +
+            '<select id="psi-name-sel" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;min-width:230px;" onchange="window._psiOnName()">' +
+              '<option value="">— pick a name —</option>' + suggestOpts + '<option value="__custom__">✏️ Custom name…</option>' +
+            '</select>' +
+            '<input id="psi-name-custom" type="text" placeholder="Enter item name" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;width:220px;margin-top:5px;display:none;" /></div>' +
+          '<button class="btn btn-primary" onclick="window._psiCreate()" style="white-space:nowrap;align-self:flex-end;padding:6px 16px;">✦ Create</button>' +
+        '</div>' +
+        '<div id="psi-msg" style="margin-top:7px;font-size:11px;min-height:14px;"></div>' +
+      '</div>';
+    }
+
     function renderPayslipTables() {
       var intro = '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">Assign each payslip item to a BIR reporting category so values flow into 1601C, SAWT, and 2316.</p>';
-      container.innerHTML = intro + PAYSLIP_ITEM_TYPES.map(function(type) { return renderPayslipTable(type); }).join('');
+      container.innerHTML = buildCreatorHTML() + intro + PAYSLIP_ITEM_TYPES.map(function(type) { return renderPayslipTable(type); }).join('');
       container.querySelectorAll('[data-action="save-payslip-item"]').forEach(function(btn) {
         btn.addEventListener('click', onPayslipSave);
       });
+
+      // Wire creator handlers onto window so inline onchange can reach them
+      window._psiOnType = function() {
+        var typeKey = document.getElementById('psi-type').value;
+        var type = PAYSLIP_ITEM_TYPES.find(function(t) { return t.key === typeKey; }) || PAYSLIP_ITEM_TYPES[0];
+        document.getElementById('psi-cat').innerHTML = type.categories.map(function(c) {
+          return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>';
+        }).join('');
+        window._psiOnCat();
+      };
+      window._psiOnCat = function() {
+        var cat = document.getElementById('psi-cat').value;
+        var suggestions = PAYSLIP_SUGGESTED_NAMES[cat] || [];
+        document.getElementById('psi-name-sel').innerHTML =
+          '<option value="">— pick a name —</option>' +
+          suggestions.map(function(s) { return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
+          '<option value="__custom__">✏️ Custom name…</option>';
+        document.getElementById('psi-name-custom').style.display = 'none';
+        document.getElementById('psi-name-custom').value = '';
+      };
+      window._psiOnName = function() {
+        var v = document.getElementById('psi-name-sel').value;
+        document.getElementById('psi-name-custom').style.display = v === '__custom__' ? 'block' : 'none';
+      };
+      window._psiCreate = async function() {
+        var msgEl = document.getElementById('psi-msg');
+        var typeKey = document.getElementById('psi-type').value;
+        var cat = document.getElementById('psi-cat').value;
+        var selVal = document.getElementById('psi-name-sel').value;
+        var name = selVal === '__custom__'
+          ? (document.getElementById('psi-name-custom').value || '').trim()
+          : selVal;
+        if (!name) { msgEl.innerHTML = '<span style="color:#c0392b;">Please select or enter a name.</span>'; return; }
+        var type = PAYSLIP_ITEM_TYPES.find(function(t) { return t.key === typeKey; });
+        if (!type) return;
+        var existing = (caches[typeKey] || []).find(function(it) { return (it.value.name || '').toLowerCase() === name.toLowerCase(); });
+        if (existing) { msgEl.innerHTML = '<span style="color:#c0392b;">An item named "' + esc(name) + '" already exists.</span>'; return; }
+        msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
+        try {
+          await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: { name: name, reportingCategory: cat } });
+          await refresh();
+          showToast('✅ "' + name + '" created and mapped.', 'success');
+        } catch(err) {
+          msgEl.innerHTML = '<span style="color:#c0392b;">❌ ' + esc(err.message) + '</span>';
+        }
+      };
     }
 
     function renderPayslipTable(type) {
