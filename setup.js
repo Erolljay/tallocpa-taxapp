@@ -608,35 +608,54 @@ async function fetchPartyList(type, businessName) {
 // ── TAB: PAYROLL ITEMS (auto-create + auto-map to BIR categories) ──
 // Mirrors the VAT "Install Tax Code" pattern: one click creates the
 // Manager payslip item AND sets its reportingCategory in one go.
-const PAYROLL_ITEM_DEFS = [
-  // Earnings
-  { endpoint: 'payslip-earnings-item',     name: 'Basic Salary',                 category: 'ph-bir-earn-01', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Overtime Pay',                 category: 'ph-bir-earn-02', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Holiday Pay',                  category: 'ph-bir-earn-03', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Night Differential',           category: 'ph-bir-earn-04', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Hazard Pay',                   category: 'ph-bir-earn-05', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: '13th Month Pay',               category: 'ph-bir-earn-06', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'De Minimis Benefits',          category: 'ph-bir-earn-07', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Other Taxable Allowances',     category: 'ph-bir-earn-08', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Separation / Retirement Pay',  category: 'ph-bir-earn-09', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Commission',                   category: 'ph-bir-earn-10', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: 'Profit Sharing',               category: 'ph-bir-earn-11', group: 'Earnings' },
-  { endpoint: 'payslip-earnings-item',     name: "Director's Fees",              category: 'ph-bir-earn-12', group: 'Earnings' },
-  // Deductions
-  { endpoint: 'payslip-deduction-item',    name: 'Withholding Tax',                    category: 'ph-bir-ded-01', group: 'Deductions' },
-  { endpoint: 'payslip-deduction-item',    name: 'SSS Employee Contribution',          category: 'ph-bir-ded-02', group: 'Deductions' },
-  { endpoint: 'payslip-deduction-item',    name: 'PhilHealth Employee Contribution',   category: 'ph-bir-ded-03', group: 'Deductions' },
-  { endpoint: 'payslip-deduction-item',    name: 'Pag-IBIG Employee Contribution',     category: 'ph-bir-ded-04', group: 'Deductions' },
-  // Employer Contributions
-  { endpoint: 'payslip-contribution-item', name: 'SSS Employer Share',           category: 'ph-bir-con-01', group: 'Employer Contributions' },
-  { endpoint: 'payslip-contribution-item', name: 'PhilHealth Employer Share',    category: 'ph-bir-con-02', group: 'Employer Contributions' },
-  { endpoint: 'payslip-contribution-item', name: 'Pag-IBIG Employer Share',      category: 'ph-bir-con-03', group: 'Employer Contributions' },
-];
+// Suggested payslip item names per BIR category
+const PAYROLL_SUGGESTED_NAMES = {
+  'ph-bir-earn-01': ['Basic Salary', 'Monthly Salary', 'Daily Wage'],
+  'ph-bir-earn-02': ['Overtime Pay', 'OT Pay (regular)', 'OT Pay (holiday)', 'OT Pay (rest day)'],
+  'ph-bir-earn-03': ['Holiday Pay', 'Regular Holiday Pay', 'Special Holiday Pay'],
+  'ph-bir-earn-04': ['Night Differential', 'Night Shift Differential'],
+  'ph-bir-earn-05': ['Hazard Pay', 'Danger Pay'],
+  'ph-bir-earn-06': [
+    '13th Month Pay',
+    '14th Month Pay',
+    'Christmas Bonus',
+    'Mid-Year Bonus',
+    'Productivity Incentive Bonus',
+    'Loyalty Bonus',
+    'Anniversary Bonus',
+    'Performance Bonus',
+    'Rice Subsidy (excess over limit)',
+    'Meal Allowance (excess)',
+    'Other Benefits (non-taxable portion)',
+  ],
+  'ph-bir-earn-07': [
+    'Rice Subsidy (within ₱2,000/mo limit)',
+    'Uniform / Clothing Allowance (within ₱6,000/yr)',
+    'Medical / Hospitalization Allowance (within ₱10,000/yr)',
+    'Laundry Allowance (within ₱300/mo)',
+    'Achievement Award (within ₱10,000/yr)',
+    'Christmas Gift (within ₱5,000/yr)',
+    'CBA / Productivity Benefit (within ₱10,000/yr)',
+    'Meal Allowance – OT/Night Shift (within 25% min wage)',
+  ],
+  'ph-bir-earn-08': ['Living Allowance', 'Transportation Allowance', 'Communication Allowance', 'Representation Allowance', 'Other Taxable Allowance'],
+  'ph-bir-earn-09': ['Separation Pay', 'Retirement Pay', 'Terminal Pay'],
+  'ph-bir-earn-10': ['Commission', 'Sales Commission', 'Agent Commission'],
+  'ph-bir-earn-11': ['Profit Sharing', 'Year-End Profit Share'],
+  'ph-bir-earn-12': ["Director's Fee", "Board Director's Fee"],
+  'ph-bir-ded-01': ['Withholding Tax on Compensation', 'Income Tax Withheld'],
+  'ph-bir-ded-02': ['SSS Employee Contribution', 'SSS Premium'],
+  'ph-bir-ded-03': ['PhilHealth Employee Contribution', 'PhilHealth Premium'],
+  'ph-bir-ded-04': ['Pag-IBIG Employee Contribution', 'HDMF Contribution'],
+  'ph-bir-con-01': ['SSS Employer Share', 'SSS Employer Contribution'],
+  'ph-bir-con-02': ['PhilHealth Employer Share', 'PhilHealth Employer Contribution'],
+  'ph-bir-con-03': ['Pag-IBIG Employer Share', 'HDMF Employer Contribution'],
+};
 
 let _payrollItemsCache = {}; // endpoint -> [{key, value}]
 
 async function fetchPayrollItems(biz) {
-  const endpoints = [...new Set(PAYROLL_ITEM_DEFS.map(d => d.endpoint))];
+  const endpoints = ['payslip-earnings-item', 'payslip-deduction-item', 'payslip-contribution-item'];
   const results = await Promise.all(endpoints.map(ep => fetchAllBatch(`/api4/${ep}-batch`, biz)));
   const out = {};
   endpoints.forEach((ep, i) => {
@@ -656,62 +675,229 @@ async function loadPayrollItemsTab() {
   }
 }
 
+// BIR category definitions grouped by payslip type
+const PAYROLL_BIR_GROUPS = {
+  Earnings: {
+    endpoint: 'payslip-earnings-item',
+    items: [
+      { category: 'ph-bir-earn-01', label: 'Basic Salary' },
+      { category: 'ph-bir-earn-02', label: 'Overtime Pay' },
+      { category: 'ph-bir-earn-03', label: 'Holiday Pay' },
+      { category: 'ph-bir-earn-04', label: 'Night Differential' },
+      { category: 'ph-bir-earn-05', label: 'Hazard Pay' },
+      { category: 'ph-bir-earn-06', label: '13th Month Pay & Other Benefits' },
+      { category: 'ph-bir-earn-07', label: 'De Minimis Benefits' },
+      { category: 'ph-bir-earn-08', label: 'Other Taxable Allowances' },
+      { category: 'ph-bir-earn-09', label: 'Separation / Retirement Pay' },
+      { category: 'ph-bir-earn-10', label: 'Commission' },
+      { category: 'ph-bir-earn-11', label: 'Profit Sharing' },
+      { category: 'ph-bir-earn-12', label: "Director's Fees" },
+    ],
+  },
+  Deductions: {
+    endpoint: 'payslip-deduction-item',
+    items: [
+      { category: 'ph-bir-ded-01', label: 'Withholding Tax on Compensation' },
+      { category: 'ph-bir-ded-02', label: 'SSS Employee Contribution' },
+      { category: 'ph-bir-ded-03', label: 'PhilHealth Employee Contribution' },
+      { category: 'ph-bir-ded-04', label: 'Pag-IBIG Employee Contribution' },
+    ],
+  },
+  'Employer Contributions': {
+    endpoint: 'payslip-contribution-item',
+    items: [
+      { category: 'ph-bir-con-01', label: 'SSS Employer Share' },
+      { category: 'ph-bir-con-02', label: 'PhilHealth Employer Share' },
+      { category: 'ph-bir-con-03', label: 'Pag-IBIG Employer Share' },
+    ],
+  },
+};
+
 function renderPayrollItemsTab(panel) {
-  const groups = ['Earnings', 'Deductions', 'Employer Contributions'];
+  const groupOpts = Object.keys(PAYROLL_BIR_GROUPS)
+    .map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
+  const firstGroup = Object.keys(PAYROLL_BIR_GROUPS)[0];
+  const firstItems = PAYROLL_BIR_GROUPS[firstGroup].items
+    .map(i => `<option value="${escHtml(i.category)}">${escHtml(i.label)}</option>`).join('');
+
+  const firstCat = PAYROLL_BIR_GROUPS[firstGroup].items[0]?.category || '';
+  const firstSuggestions = (PAYROLL_SUGGESTED_NAMES[firstCat] || [])
+    .map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+
   panel.innerHTML = `
-    <div class="alert alert-info" style="margin-bottom:12px;font-size:11px;">
-      Click <strong>Install</strong> to create the standard payslip item in Manager AND tag it with the
-      matching BIR reporting category in one step. Use this on a fresh business — for existing items,
-      use the <strong>Payslip items</strong> tab to map manually instead.
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">➕ Create New Payslip Item</div>
+      <div style="font-size:11px;color:#6b7280;margin-bottom:12px;">
+        Only needed if the item doesn't exist in Manager yet. Existing items can be mapped using the table below.
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+          <label style="font-size:11px;display:block;margin-bottom:4px;font-weight:600;">Type</label>
+          <select id="payroll-grp-sel" style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;min-width:180px;" onchange="onPayrollGroupChange()">
+            ${groupOpts}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;display:block;margin-bottom:4px;font-weight:600;">BIR Category</label>
+          <select id="payroll-cat-sel" style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;min-width:220px;" onchange="onPayrollCatChange()">
+            ${firstItems}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;display:block;margin-bottom:4px;font-weight:600;">Item Name</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="payroll-name-sel" style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;min-width:240px;" onchange="onPayrollNameSuggest()">
+              <option value="">— pick a suggested name —</option>
+              ${firstSuggestions}
+              <option value="__custom__">✏️ Type a custom name…</option>
+            </select>
+          </div>
+          <input id="payroll-name-custom" type="text" placeholder="Enter custom item name"
+            style="font-size:12px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;width:280px;margin-top:6px;display:none;" />
+        </div>
+        <button class="btn btn-primary" onclick="createPayrollItem()" style="white-space:nowrap;padding:7px 18px;align-self:flex-end;">✦ Create</button>
+      </div>
+      <div id="payroll-create-msg" style="margin-top:8px;font-size:11px;min-height:16px;"></div>
     </div>
-    ${groups.map(g => renderPayrollGroup(g)).join('')}`;
+    ${renderAllPayrollGroups()}`;
 }
 
-function findInstalledItem(def) {
-  const items = _payrollItemsCache[def.endpoint] || [];
-  return items.find(it => (it.value.reportingCategory || '') === def.category);
+function onPayrollGroupChange() {
+  const grp = document.getElementById('payroll-grp-sel').value;
+  const items = (PAYROLL_BIR_GROUPS[grp] || {}).items || [];
+  document.getElementById('payroll-cat-sel').innerHTML = items
+    .map(i => `<option value="${escHtml(i.category)}">${escHtml(i.label)}</option>`).join('');
+  onPayrollCatChange();
 }
 
-function renderPayrollGroup(groupName) {
-  const rows = PAYROLL_ITEM_DEFS.filter(d => d.group === groupName).map(def => {
-    const installed = findInstalledItem(def);
-    const status = installed
-      ? `<span style="color:#27ae60;font-weight:600;">✓ ${escHtml(installed.value.name || installed.value.Name || def.name)}</span>`
-      : `<span style="color:#9ca3af;">— not installed —</span>`;
-    const btn = installed
-      ? ''
-      : `<button class="btn btn-outline btn-sm" onclick="installPayrollItem(${JSON.stringify(def).replace(/"/g,'&quot;')})">✦ Install</button>`;
-    return `<tr style="border-bottom:1px solid #f0f0f0;">
-      <td style="padding:9px 14px;font-size:12px;font-weight:600;color:#0d1b3e;">${escHtml(def.name)}</td>
-      <td style="padding:6px 14px;font-size:12px;">${status}</td>
-      <td style="padding:6px 10px;width:110px;">${btn}</td>
-    </tr>`;
+function onPayrollCatChange() {
+  const cat = document.getElementById('payroll-cat-sel').value;
+  const suggestions = PAYROLL_SUGGESTED_NAMES[cat] || [];
+  document.getElementById('payroll-name-sel').innerHTML =
+    `<option value="">— pick a suggested name —</option>` +
+    suggestions.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('') +
+    `<option value="__custom__">✏️ Type a custom name…</option>`;
+  document.getElementById('payroll-name-custom').style.display = 'none';
+  document.getElementById('payroll-name-custom').value = '';
+}
+
+function onPayrollNameSuggest() {
+  const val = document.getElementById('payroll-name-sel').value;
+  document.getElementById('payroll-name-custom').style.display = val === '__custom__' ? 'block' : 'none';
+}
+
+function renderAllPayrollGroups() {
+  return Object.entries(PAYROLL_BIR_GROUPS).map(([groupName, { endpoint, items }]) => {
+    const allItems = _payrollItemsCache[endpoint] || [];
+    if (!allItems.length) return `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">${escHtml(groupName)}</div>
+        <div style="font-size:12px;color:#9ca3af;padding:8px 4px;">No ${escHtml(groupName.toLowerCase())} items found in Manager.</div>
+      </div>`;
+
+    const rows = allItems.map(it => {
+      const name = it.value.name || it.value.Name || '';
+      const mapped = it.value.reportingCategory || '';
+      const catDef = items.find(i => i.category === mapped);
+
+      if (catDef) {
+        // Already mapped — show green label
+        return `<tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:8px 14px;font-size:12px;font-weight:600;color:#0d1b3e;">${escHtml(name)}</td>
+          <td style="padding:8px 14px;font-size:12px;">
+            <span style="color:#27ae60;font-weight:600;">✓ ${escHtml(catDef.label)}</span>
+          </td>
+        </tr>`;
+      } else {
+        // Not mapped — show dropdown to assign BIR category
+        const catOpts = `<option value="">— not mapped —</option>` +
+          items.map(i => `<option value="${escHtml(i.category)}">${escHtml(i.label)}</option>`).join('');
+        const itemKey = escHtml(it.key);
+        return `<tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:8px 14px;font-size:12px;font-weight:600;color:#0d1b3e;">${escHtml(name)}</td>
+          <td style="padding:6px 14px;font-size:12px;">
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="map-${itemKey}" style="font-size:11px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;">
+                ${catOpts}
+              </select>
+              <button class="btn btn-outline btn-sm" onclick="mapPayrollItem('${itemKey}','${escHtml(endpoint)}')">Map</button>
+            </div>
+          </td>
+        </tr>`;
+      }
+    }).join('');
+
+    const unmappedCount = allItems.filter(it => !items.find(i => i.category === (it.value.reportingCategory || ''))).length;
+    const badge = unmappedCount > 0
+      ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:10px;margin-left:8px;">${unmappedCount} unmapped</span>`
+      : `<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:10px;margin-left:8px;">✓ all mapped</span>`;
+
+    return `<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">${escHtml(groupName)}${badge}</div>
+      <table class="data-table">
+        <thead><tr>
+          <th style="padding:8px 14px;font-size:11px;">Payslip Item (from Manager)</th>
+          <th style="padding:8px 14px;font-size:11px;">BIR Category</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   }).join('');
-
-  return `<div class="card" style="margin-bottom:14px;">
-    <div class="card-title">${escHtml(groupName)}</div>
-    <table class="data-table">
-      <thead><tr><th style="padding:10px 14px;font-size:11px;">BIR Category</th><th style="padding:10px 14px;font-size:11px;">Manager Payslip Item</th><th style="padding:10px 14px;font-size:11px;width:110px;"></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
 }
 
-async function installPayrollItem(def) {
-  const btn = event.target; btn.disabled = true; btn.textContent = '⏳…';
+async function mapPayrollItem(itemKey, endpoint) {
+  const sel = document.getElementById(`map-${itemKey}`);
+  const category = sel ? sel.value : '';
+  if (!category) { showToast('Please select a BIR category.', 'err'); return; }
+  const it = (_payrollItemsCache[endpoint] || []).find(x => x.key === itemKey);
+  if (!it) return;
   try {
-    await apiRequest('POST', `/api4/${def.endpoint}`, {
-      business: App.currentBusiness,
-      value: { name: def.name, reportingCategory: def.category },
+    await apiRequest('PUT', `/api4/${endpoint}`, {
+      business: App.currentBusiness, key: itemKey,
+      value: Object.assign({}, it.value, { reportingCategory: category }),
     });
     _payrollItemsCache = await fetchPayrollItems(App.currentBusiness);
     renderPayrollItemsTab(document.getElementById('tab-payroll'));
-    showToast(`✅ "${def.name}" installed.`, 'success');
+    showToast('✅ Mapped successfully.', 'success');
   } catch (err) {
     showToast(`❌ ${err.message}`, 'err');
-    btn.disabled = false; btn.textContent = '✦ Install';
   }
 }
+
+async function createPayrollItem() {
+  const grp      = document.getElementById('payroll-grp-sel').value;
+  const category = document.getElementById('payroll-cat-sel').value;
+  const msgEl    = document.getElementById('payroll-create-msg');
+  const { endpoint } = PAYROLL_BIR_GROUPS[grp] || {};
+  if (!endpoint || !category) return;
+
+  const selVal = document.getElementById('payroll-name-sel').value;
+  const name = selVal === '__custom__'
+    ? (document.getElementById('payroll-name-custom').value || '').trim()
+    : selVal;
+  if (!name) { msgEl.innerHTML = '<span style="color:#c0392b;">Please select or enter an item name.</span>'; return; }
+
+  // Prevent duplicate category mapping
+  const existing = (_payrollItemsCache[endpoint] || []).find(it => it.value.reportingCategory === category);
+  if (existing) {
+    msgEl.innerHTML = `<span style="color:#c0392b;">An item mapped to "<strong>${escHtml(catDef?.label || category)}</strong>" already exists: <em>${escHtml(existing.value.name)}</em></span>`;
+    return;
+  }
+
+  msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
+  try {
+    await apiRequest('POST', `/api4/${endpoint}`, {
+      business: App.currentBusiness,
+      value: { name, reportingCategory: category },
+    });
+    _payrollItemsCache = await fetchPayrollItems(App.currentBusiness);
+    renderPayrollItemsTab(document.getElementById('tab-payroll'));
+    showToast(`✅ "${name}" created and mapped.`, 'success');
+  } catch (err) {
+    msgEl.innerHTML = `<span style="color:#c0392b;">❌ ${escHtml(err.message)}</span>`;
+  }
+}
+
 
 // ── TAB: CUSTOMERS / SUPPLIERS ────────────────────────────────
 async function loadPartyTab(type) {
