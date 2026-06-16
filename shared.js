@@ -290,6 +290,7 @@ async function getOrCreateBizDataRecord(biz) {
   if (found) return { key: found.key, value: found.item || {} };
 
   const created = await apiRequest('POST', '/api4/customer', {
+    business: biz,
     value: {
       name: BIZ_DATA_RECORD_NAME,
       inactive: false,
@@ -298,36 +299,27 @@ async function getOrCreateBizDataRecord(biz) {
   });
   const key = (created && (created.key || created.Key)) || (typeof created === 'string' ? created : null);
   if (!key) throw new Error('Could not create business data record');
-  return { key, value: { name: BIZ_DATA_RECORD_NAME, inactive: false, customFields2: { strings: {} } } };
+  // Fetch the newly-created record so we have the full Manager schema for future PUTs.
+  const fetched = await apiRequest('GET', `/api4/customer?business=${encodeURIComponent(biz)}&key=${encodeURIComponent(key)}`);
+  return { key, value: fetched || { name: BIZ_DATA_RECORD_NAME, inactive: false, customFields2: { strings: {} } } };
 }
 
 // Save the business-level BIR blob into the dummy customer record's customFields2.strings.
 async function saveBizDataRecord(biz, guid, birBlob) {
   const { key, value } = await getOrCreateBizDataRecord(biz);
   const managerCF2 = buildBIRCustomFields(value, guid, birBlob);
-  const putValue = {
-    name:            value.name            !== undefined ? value.name            : BIZ_DATA_RECORD_NAME,
-    code:            value.code            !== undefined ? value.code            : null,
-    creditLimit:     value.creditLimit     !== undefined ? value.creditLimit     : 0,
-    currency:        value.currency        !== undefined ? value.currency        : null,
-    billingAddress:  value.billingAddress  !== undefined ? value.billingAddress  : null,
-    deliveryAddress: value.deliveryAddress !== undefined ? value.deliveryAddress : null,
-    email:           value.email           !== undefined ? value.email           : null,
-    division:        value.division        !== undefined ? value.division        : null,
-    controlAccount:  value.controlAccount  !== undefined ? value.controlAccount  : null,
-    hasDefaultDueDateDays: value.hasDefaultDueDateDays || false,
-    defaultDueDateDays:    value.defaultDueDateDays    !== undefined ? value.defaultDueDateDays : null,
-    hasDefaultHourlyRate:  value.hasDefaultHourlyRate  || false,
-    defaultHourlyRate:     value.defaultHourlyRate     !== undefined ? value.defaultHourlyRate  : 0,
-    inactive:              false,
-    customFields:          value.customFields          !== undefined ? value.customFields : null,
-    customFields2:         managerCF2,
-    hasDefaultBillingAddress:  value.hasDefaultBillingAddress  || false,
-    defaultBillingAddress:     value.defaultBillingAddress     !== undefined ? value.defaultBillingAddress  : null,
-    hasDefaultDeliveryAddress: value.hasDefaultDeliveryAddress || false,
-    defaultDeliveryAddress:    value.defaultDeliveryAddress    !== undefined ? value.defaultDeliveryAddress : null,
-  };
-  await apiRequest('PUT', '/api4/customer', { business: biz, key, value: putValue });
+  // Mirror back exactly what Manager gave us, only overriding customFields2.
+  // Building a field whitelist causes 400s when Manager's schema changes or
+  // when required fields differ between versions.
+  const putValue = Object.assign({}, ...Object.keys(value)
+    .filter(k => k !== 'timestamp' && k !== 'id' && k !== 'key')
+    .map(k => ({ [k]: value[k] })), { customFields2: managerCF2 });
+  try {
+    await apiRequest('PUT', '/api4/customer', { business: biz, key, value: putValue });
+  } catch (err) {
+    console.error('[saveBizDataRecord] PUT failed. key=%s body=%o err=%s', key, putValue, err.message);
+    throw err;
+  }
   return managerCF2;
 }
 
