@@ -135,23 +135,29 @@ const MAPPING_GUIDS = {
 };
 
 // Read/save payroll category mapping { itemKey -> birCategoryId }
-// Stored in our BIR business data blob (same mechanism as vatMapping/ewtMapping).
+// Uses the 'BIR Mapping Data' custom field (registered via ensureBIRFields → guids.mapping).
 async function getPayrollMapping(biz) {
-  const bizRec = await getOrCreateBizDataRecord(biz);
+  const [bizRec, guids] = await Promise.all([getOrCreateBizDataRecord(biz), ensureBIRFields(biz)]);
+  const mappingGuid = guids && guids.mapping;
+  if (!mappingGuid) return {};
   const rawCF = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
-  const raw = rawCF[MAPPING_GUIDS.payrollMapping];
+  const raw = rawCF[mappingGuid];
   try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
 }
 
 async function savePayrollMapping(biz, mapping) {
-  return saveBizDataRecord(biz, MAPPING_GUIDS.payrollMapping, mapping);
+  const guids = await ensureBIRFields(biz);
+  const mappingGuid = guids && guids.mapping;
+  if (!mappingGuid) throw new Error('BIR Mapping Data custom field not available');
+  return saveBizDataRecord(biz, mappingGuid, mapping);
 }
 
 // ── BIR CUSTOM FIELD DEFINITIONS ─────────────────────────────
 const BIR_CF_NAMES = {
-  biz:   'BIR Business Data',
-  party: 'BIR Party Data',
-  emp:   'BIR Employee Data',
+  biz:     'BIR Business Data',
+  party:   'BIR Party Data',
+  emp:     'BIR Employee Data',
+  mapping: 'BIR Mapping Data',
 };
 
 // Known Manager custom-field placement GUIDs (confirmed via API).
@@ -187,16 +193,18 @@ async function ensureBIRFields(biz) {
   };
 
   const guids = {
-    biz:   findGuid(BIR_CF_NAMES.biz),
-    party: findGuid(BIR_CF_NAMES.party),
-    emp:   findGuid(BIR_CF_NAMES.emp),
+    biz:     findGuid(BIR_CF_NAMES.biz),
+    party:   findGuid(BIR_CF_NAMES.party),
+    emp:     findGuid(BIR_CF_NAMES.emp),
+    mapping: findGuid(BIR_CF_NAMES.mapping),
   };
 
   // Create any missing definitions
   const defs = [
-    { slot: 'biz',   name: BIR_CF_NAMES.biz,  placement: BIR_PLACEMENTS.biz.map(p => p.Key)   },
-    { slot: 'party', name: BIR_CF_NAMES.party, placement: BIR_PLACEMENTS.party.map(p => p.Key) },
-    { slot: 'emp',   name: BIR_CF_NAMES.emp,  placement: BIR_PLACEMENTS.emp.map(p => p.Key)   },
+    { slot: 'biz',     name: BIR_CF_NAMES.biz,     placement: BIR_PLACEMENTS.biz.map(p => p.Key)   },
+    { slot: 'party',   name: BIR_CF_NAMES.party,   placement: BIR_PLACEMENTS.party.map(p => p.Key) },
+    { slot: 'emp',     name: BIR_CF_NAMES.emp,     placement: BIR_PLACEMENTS.emp.map(p => p.Key)   },
+    { slot: 'mapping', name: BIR_CF_NAMES.mapping, placement: BIR_PLACEMENTS.party.map(p => p.Key) },
   ];
   for (const def of defs) {
     if (guids[def.slot]) continue;
@@ -224,6 +232,7 @@ async function ensureBIRFields(biz) {
   // customer and supplier share the same 'BIR Party Data' definition
   guids.customer = guids.party;
   guids.supplier = guids.party;
+  // mapping slot is placed on customer (same placements as party)
 
   _birGuidCache[biz] = guids;
   return guids;
