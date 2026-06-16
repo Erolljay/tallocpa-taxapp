@@ -296,7 +296,11 @@ async function getOrCreateBizDataRecord(biz) {
     const v = it.item || {};
     return (v.name || v.Name) === BIZ_DATA_RECORD_NAME;
   });
-  if (found) return { key: found.key, value: found.item || {} };
+  if (found) {
+    // Batch responses may omit customFields2 — fetch the full record by key.
+    const full = await apiRequest('GET', `/api4/customer?business=${encodeURIComponent(biz)}&key=${encodeURIComponent(found.key)}`);
+    return { key: found.key, value: full || found.item || {} };
+  }
 
   const created = await apiRequest('POST', '/api4/customer', {
     business: biz,
