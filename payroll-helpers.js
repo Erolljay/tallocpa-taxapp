@@ -92,9 +92,16 @@ function lineItemKey(line) {
 }
 
 function lineAmount(line) {
-  // Negative amounts (tardiness, LWP, absences) are stored negative in Manager
-  // and must reduce the category total, not add to it.
-  return Number(line?.amount ?? line?.Amount ?? 0);
+  // Manager payslip lines: flat amounts use earningsAmount/deductionAmount/contributionAmount;
+  // rate-based lines use unitPrice * units. Negative values (tardiness, LWP) are preserved.
+  const direct = line?.amount ?? line?.Amount
+    ?? line?.earningsAmount ?? line?.EarningsAmount
+    ?? line?.deductionAmount ?? line?.DeductionAmount
+    ?? line?.contributionAmount ?? line?.ContributionAmount;
+  if (direct != null && direct !== '') return Number(direct) || 0;
+  const units = Number(line?.units ?? line?.Units ?? 1);
+  const price = Number(line?.unitPrice ?? line?.UnitPrice ?? 0);
+  return price * units;
 }
 
 function payslipEmployeeKey(payslip) {
