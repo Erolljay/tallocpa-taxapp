@@ -135,25 +135,28 @@ const MAPPING_GUIDS = {
 };
 
 // Read/save payroll category mapping { itemKey -> birCategoryId }
-// Multiple 'BIR Mapping Data' custom fields may exist from different sessions —
-// merge all of them when reading so no previously-saved mappings are lost.
+// Reads ALL customFields2 strings and collects entries whose values start with
+// 'ph-bir-' — this catches data saved under any GUID from any session.
 async function getPayrollMapping(biz) {
-  const [bizRec, guids] = await Promise.all([getOrCreateBizDataRecord(biz), ensureBIRFields(biz)]);
-  const allGuids = (guids && guids.allMappings) || (guids && guids.mapping ? [guids.mapping] : []);
-  if (!allGuids.length) return {};
+  const bizRec = await getOrCreateBizDataRecord(biz);
   const strings = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
-  // Merge all mapping blobs; later entries override earlier ones for the same key.
   const merged = {};
-  for (const g of allGuids) {
-    try { Object.assign(merged, strings[g] ? JSON.parse(strings[g]) : {}); } catch { /* skip invalid */ }
+  for (const raw of Object.values(strings)) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'string' && v.startsWith('ph-bir-')) merged[k] = v;
+        }
+      }
+    } catch { /* skip non-JSON or invalid entries */ }
   }
   return merged;
 }
 
 async function savePayrollMapping(biz, mapping) {
   const guids = await ensureBIRFields(biz);
-  // Prefer the first existing GUID that already has data so we consolidate over time.
-  const targetGuid = guids.mapping;
+  const targetGuid = guids && guids.mapping;
   if (!targetGuid) throw new Error('BIR Mapping Data custom field not available');
   return saveBizDataRecord(biz, targetGuid, mapping);
 }
