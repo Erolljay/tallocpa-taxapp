@@ -95,14 +95,30 @@ function getPageContextBusiness() {
 
 async function getReportBusiness(containerEl) {
   const ctxBiz = await getPageContextBusiness();
-  if (ctxBiz) {
-    App.currentBusiness = ctxBiz;
-    return ctxBiz;
-  }
 
   const res = await apiRequest('GET', '/api4/businesses');
   const businesses = res?.businesses || [];
   if (!businesses.length) throw new Error('No businesses found in Manager.');
+
+  // ctxBiz from the page URL may be a numeric index rather than the business name.
+  // Resolve it to the actual name.
+  if (ctxBiz) {
+    const byName = businesses.find(b => b.name === ctxBiz);
+    if (byName) {
+      App.currentBusiness = byName.name;
+      return byName.name;
+    }
+    const idx = parseInt(ctxBiz, 10);
+    if (!isNaN(idx)) {
+      // Manager uses 1-based or 0-based index depending on version — try both.
+      const byIdx = businesses[idx] || businesses[idx - 1];
+      if (byIdx) {
+        App.currentBusiness = byIdx.name;
+        return byIdx.name;
+      }
+    }
+  }
+
   if (businesses.length === 1) {
     App.currentBusiness = businesses[0].name;
     return businesses[0].name;

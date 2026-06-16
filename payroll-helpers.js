@@ -92,7 +92,9 @@ function lineItemKey(line) {
 }
 
 function lineAmount(line) {
-  return Math.abs(Number(line?.amount ?? line?.Amount ?? 0));
+  // Negative amounts (tardiness, LWP, absences) are stored negative in Manager
+  // and must reduce the category total, not add to it.
+  return Number(line?.amount ?? line?.Amount ?? 0);
 }
 
 function payslipEmployeeKey(payslip) {
