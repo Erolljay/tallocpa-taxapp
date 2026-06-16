@@ -60,20 +60,12 @@ function computeMonthlyWithholding(monthlyTaxable) {
   return computeAnnualTax(Number(monthlyTaxable || 0) * 12) / 12;
 }
 
-// ── PAYSLIP ITEM -> BIR CATEGORY MAP (across all 3 item endpoints) ──
-const PAYROLL_ITEM_ENDPOINTS = ['payslip-earnings-item', 'payslip-deduction-item', 'payslip-contribution-item'];
-
+// ── PAYSLIP ITEM -> BIR CATEGORY MAP ──────────────────────────
+// Reads from our BIR payroll mapping blob (stored in business data record).
+// Manager's payslip item API does not support a reportingCategory field —
+// we store the mapping ourselves via getPayrollMapping/savePayrollMapping.
 async function getPayslipCategoryMap(biz) {
-  const results = await Promise.all(PAYROLL_ITEM_ENDPOINTS.map(ep => fetchAllBatch(`/api4/${ep}-batch`, biz)));
-  const map = {}; // itemKey -> categoryId
-  results.forEach(items => {
-    (items || []).forEach(it => {
-      const rec = it.item || it.value || {};
-      const cat = rec.reportingCategory || rec.ReportingCategory;
-      if (cat) map[it.key] = cat;
-    });
-  });
-  return map;
+  return getPayrollMapping(biz);
 }
 
 // ── EXTRACT CATEGORY AMOUNTS FROM A SINGLE PAYSLIP ─────────────

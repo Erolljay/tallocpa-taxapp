@@ -127,11 +127,25 @@ async function getReportBusiness(containerEl) {
 
 // ── MANAGER MAPPING GUIDS ────────────────────────────────────
 const MAPPING_GUIDS = {
-  vatMapping: 'b1r00099-0000-4000-a000-000000000001',
-  ewtMapping: 'b1r00099-0000-4000-a000-000000000002',
-  fwtMapping: 'b1r00099-0000-4000-a000-000000000003',
-  ptMapping:  'b1r00099-0000-4000-a000-000000000004',
+  vatMapping:     'b1r00099-0000-4000-a000-000000000001',
+  ewtMapping:     'b1r00099-0000-4000-a000-000000000002',
+  fwtMapping:     'b1r00099-0000-4000-a000-000000000003',
+  ptMapping:      'b1r00099-0000-4000-a000-000000000004',
+  payrollMapping: 'b1r00099-0000-4000-a000-000000000005',
 };
+
+// Read/save payroll category mapping { itemKey -> birCategoryId }
+// Stored in our BIR business data blob (same mechanism as vatMapping/ewtMapping).
+async function getPayrollMapping(biz) {
+  const bizRec = await getOrCreateBizDataRecord(biz);
+  const rawCF = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
+  const raw = rawCF[MAPPING_GUIDS.payrollMapping];
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+
+async function savePayrollMapping(biz, mapping) {
+  return saveBizDataRecord(biz, MAPPING_GUIDS.payrollMapping, mapping);
+}
 
 // ── BIR CUSTOM FIELD DEFINITIONS ─────────────────────────────
 const BIR_CF_NAMES = {

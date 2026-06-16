@@ -688,6 +688,7 @@
 
   function mountPayslipItemsSection(container) {
     var caches = {};
+    var payrollMap = {};
 
     async function refresh() {
       var business = biz();
@@ -696,12 +697,14 @@
       try {
         var results = await Promise.all(
           PAYSLIP_ITEM_TYPES.map(function(t) { return fetchAllBatch('/api4/' + t.endpoint + '-batch', business); })
+            .concat([getPayrollMapping(business)])
         );
         PAYSLIP_ITEM_TYPES.forEach(function(t, i) {
           caches[t.key] = (results[i] || []).map(function(it) {
             return { key: it.key, value: it.item || {}, displayName: (it.item || {}).name || (it.item || {}).Name || it.key };
           }).sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
         });
+        payrollMap = results[PAYSLIP_ITEM_TYPES.length] || {};
       } catch(err) {
         container.innerHTML = '<div class="alert alert-error">Failed: ' + esc(err.message) + '</div>';
         return;
@@ -785,27 +788,20 @@
         if (existing) { msgEl.innerHTML = '<span style="color:#c0392b;">An item named "' + esc(name) + '" already exists.</span>'; return; }
         msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
         try {
-          // Step 1: POST with minimal fields (name only) — Manager rejects unknown fields on create
           var template = (caches[typeKey] || [])[0];
           var baseValue = template ? buildSafeValue(template.value, {}) : { inactive: false };
           var createValue = Object.assign({}, baseValue, { name: name });
-          delete createValue.reportingCategory; // strip — set via PUT after creation
+          delete createValue.reportingCategory;
           var created = await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: createValue });
 
-          // Step 2: fetch the new item's key then PUT reportingCategory onto it
-          var newKey = (created && (created.key || created.Key)) || (typeof created === 'string' ? created : null);
-          if (!newKey) {
-            // Key not returned — reload to find it by name, then PUT
-            var reloaded = await fetchAllBatch('/api4/' + type.endpoint + '-batch', biz());
-            var found = (reloaded || []).find(function(it) { return ((it.item || {}).name || '').toLowerCase() === name.toLowerCase(); });
-            newKey = found ? found.key : null;
+          // Map the new item immediately in our blob
+          if (created && created.key && cat) {
+            payrollMap[created.key] = cat;
+            await savePayrollMapping(biz(), payrollMap);
           }
-          if (newKey && cat) {
-            var putBase = template ? buildSafeValue(template.value, {}) : { inactive: false };
-            await apiRequest('PUT', '/api4/' + type.endpoint, { business: biz(), key: newKey, value: Object.assign({}, putBase, { name: name, reportingCategory: cat }) });
-          }
+
           await refresh();
-          showToast('✅ "' + name + '" created and mapped.', 'success');
+          showToast('✅ "' + name + '" created and mapped!', 'success');
         } catch(err) {
           msgEl.innerHTML = '<span style="color:#c0392b;">❌ ' + esc(err.message) + '</span>';
         }
@@ -819,7 +815,7 @@
       var catOpts = '<option value="">-- none --</option>' +
         type.categories.map(function(c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('');
       var rows = items.map(function(it, idx) {
-        var current = it.value.reportingCategory || '';
+        var current = payrollMap[it.key] || '';
         var opts = catOpts.replace('value="' + esc(current) + '"', 'value="' + esc(current) + '" selected');
         return '<tr data-type="' + type.key + '" data-key="' + esc(it.key) + '" data-idx="' + idx + '" style="border-bottom:.5px solid #f3f4f6;">' +
           '<td style="padding:6px 8px;font-size:12px;font-weight:500;">' + esc(it.displayName) + '</td>' +
@@ -839,19 +835,17 @@
     async function onPayslipSave(e) {
       var btn = e.currentTarget;
       var row = btn.closest('tr');
-      var typeKey = row.dataset.type;
-      var type = PAYSLIP_ITEM_TYPES.find(function(t) { return t.key === typeKey; });
-      var idx = parseInt(row.dataset.idx, 10);
       var key = row.dataset.key;
       var business = biz();
-      if (!business || !type) return;
-      var rec = caches[typeKey][idx];
-      if (!rec) return;
+      if (!business || !key) return;
       var newCat = row.querySelector('[data-role="cat"]').value || null;
-      var updated = buildSafeValue(rec.value, { reportingCategory: newCat });
       try {
-        await apiRequest('PUT', '/api4/' + type.endpoint, { business: business, key: key, value: updated });
-        rec.value = updated;
+        if (newCat) {
+          payrollMap[key] = newCat;
+        } else {
+          delete payrollMap[key];
+        }
+        await savePayrollMapping(business, payrollMap);
         flash(btn, true);
       } catch(err) {
         console.error(err);
