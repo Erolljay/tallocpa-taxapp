@@ -785,11 +785,25 @@
         if (existing) { msgEl.innerHTML = '<span style="color:#c0392b;">An item named "' + esc(name) + '" already exists.</span>'; return; }
         msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
         try {
-          // Use first existing item as a field template so Manager accepts all required fields
+          // Step 1: POST with minimal fields (name only) — Manager rejects unknown fields on create
           var template = (caches[typeKey] || [])[0];
           var baseValue = template ? buildSafeValue(template.value, {}) : { inactive: false };
-          var newValue = Object.assign({}, baseValue, { name: name, reportingCategory: cat });
-          await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: newValue });
+          var createValue = Object.assign({}, baseValue, { name: name });
+          delete createValue.reportingCategory; // strip — set via PUT after creation
+          var created = await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: createValue });
+
+          // Step 2: fetch the new item's key then PUT reportingCategory onto it
+          var newKey = (created && (created.key || created.Key)) || (typeof created === 'string' ? created : null);
+          if (!newKey) {
+            // Key not returned — reload to find it by name, then PUT
+            var reloaded = await fetchAllBatch('/api4/' + type.endpoint + '-batch', biz());
+            var found = (reloaded || []).find(function(it) { return ((it.item || {}).name || '').toLowerCase() === name.toLowerCase(); });
+            newKey = found ? found.key : null;
+          }
+          if (newKey && cat) {
+            var putBase = template ? buildSafeValue(template.value, {}) : { inactive: false };
+            await apiRequest('PUT', '/api4/' + type.endpoint, { business: biz(), key: newKey, value: Object.assign({}, putBase, { name: name, reportingCategory: cat }) });
+          }
           await refresh();
           showToast('✅ "' + name + '" created and mapped.', 'success');
         } catch(err) {
