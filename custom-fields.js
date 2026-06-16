@@ -785,7 +785,11 @@
         if (existing) { msgEl.innerHTML = '<span style="color:#c0392b;">An item named "' + esc(name) + '" already exists.</span>'; return; }
         msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
         try {
-          await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: { name: name, reportingCategory: cat } });
+          // Use first existing item as a field template so Manager accepts all required fields
+          var template = (caches[typeKey] || [])[0];
+          var baseValue = template ? buildSafeValue(template.value, {}) : { inactive: false };
+          var newValue = Object.assign({}, baseValue, { name: name, reportingCategory: cat });
+          await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: newValue });
           await refresh();
           showToast('✅ "' + name + '" created and mapped.', 'success');
         } catch(err) {
