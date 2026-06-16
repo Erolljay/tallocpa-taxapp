@@ -135,21 +135,27 @@ const MAPPING_GUIDS = {
 };
 
 // Read/save payroll category mapping { itemKey -> birCategoryId }
-// Uses the 'BIR Mapping Data' custom field (registered via ensureBIRFields → guids.mapping).
+// Multiple 'BIR Mapping Data' custom fields may exist from different sessions —
+// merge all of them when reading so no previously-saved mappings are lost.
 async function getPayrollMapping(biz) {
   const [bizRec, guids] = await Promise.all([getOrCreateBizDataRecord(biz), ensureBIRFields(biz)]);
-  const mappingGuid = guids && guids.mapping;
-  if (!mappingGuid) return {};
-  const rawCF = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
-  const raw = rawCF[mappingGuid];
-  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+  const allGuids = (guids && guids.allMappings) || (guids && guids.mapping ? [guids.mapping] : []);
+  if (!allGuids.length) return {};
+  const strings = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
+  // Merge all mapping blobs; later entries override earlier ones for the same key.
+  const merged = {};
+  for (const g of allGuids) {
+    try { Object.assign(merged, strings[g] ? JSON.parse(strings[g]) : {}); } catch { /* skip invalid */ }
+  }
+  return merged;
 }
 
 async function savePayrollMapping(biz, mapping) {
   const guids = await ensureBIRFields(biz);
-  const mappingGuid = guids && guids.mapping;
-  if (!mappingGuid) throw new Error('BIR Mapping Data custom field not available');
-  return saveBizDataRecord(biz, mappingGuid, mapping);
+  // Prefer the first existing GUID that already has data so we consolidate over time.
+  const targetGuid = guids.mapping;
+  if (!targetGuid) throw new Error('BIR Mapping Data custom field not available');
+  return saveBizDataRecord(biz, targetGuid, mapping);
 }
 
 // ── BIR CUSTOM FIELD DEFINITIONS ─────────────────────────────
@@ -191,12 +197,18 @@ async function ensureBIRFields(biz) {
     });
     return it ? (it.key || it.Key) : null;
   };
+  // Collect ALL GUIDs for 'BIR Mapping Data' — previous sessions may have created duplicates.
+  const findAllGuids = name => items
+    .filter(i => { const it2 = i.item || i.value || i; return (it2.name || it2.Name) === name; })
+    .map(i => i.key || i.Key)
+    .filter(Boolean);
 
   const guids = {
-    biz:     findGuid(BIR_CF_NAMES.biz),
-    party:   findGuid(BIR_CF_NAMES.party),
-    emp:     findGuid(BIR_CF_NAMES.emp),
-    mapping: findGuid(BIR_CF_NAMES.mapping),
+    biz:         findGuid(BIR_CF_NAMES.biz),
+    party:       findGuid(BIR_CF_NAMES.party),
+    emp:         findGuid(BIR_CF_NAMES.emp),
+    mapping:     findGuid(BIR_CF_NAMES.mapping),
+    allMappings: findAllGuids(BIR_CF_NAMES.mapping),
   };
 
   // Create any missing definitions
