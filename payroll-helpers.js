@@ -159,15 +159,22 @@ async function buildPayrollYear(biz, year) {
     getPayslipCategoryMap(biz),
   ]);
 
+  // Temporary diagnostic: surfaces unmapped item keys + per-category totals
+  // in the console, to help pinpoint why a category (e.g. WTC) reads zero
+  // even though it's mapped in the Payslip Items tab.
+  const debug = { unmappedKeys: {}, catTotals: {}, payslipCount: 0, matchedPayslipCount: 0 };
+
   const byEmployee = {};
   for (const { item } of payslips) {
     const dateStr = payslipDate(item);
     const d = dateStr ? new Date(dateStr) : null;
     if (!d || isNaN(d) || d.getFullYear() !== year) continue;
+    debug.payslipCount++;
 
     const empKey = payslipEmployeeKey(item);
     if (!empKey) continue;
     const month = d.getMonth(); // 0-11
+    debug.matchedPayslipCount++;
 
     if (!byEmployee[empKey]) {
       byEmployee[empKey] = { months: Array.from({ length: 12 }, () => ({})) };
@@ -177,9 +184,18 @@ async function buildPayrollYear(biz, year) {
     for (const line of extractPayslipLines(item)) {
       const itemKey = lineItemKey(line);
       const cat = catMap[itemKey];
-      if (!cat) continue;
-      bucket[cat] = (bucket[cat] || 0) + lineAmount(line);
+      if (!cat) {
+        debug.unmappedKeys[itemKey || '(blank key)'] = (debug.unmappedKeys[itemKey || '(blank key)'] || 0) + 1;
+        continue;
+      }
+      const amt = lineAmount(line);
+      bucket[cat] = (bucket[cat] || 0) + amt;
+      debug.catTotals[cat] = (debug.catTotals[cat] || 0) + amt;
     }
+  }
+  if (typeof window !== 'undefined') {
+    window.__payrollDebug = debug;
+    console.log('[payroll-helpers] buildPayrollYear debug for', year, '— inspect via window.__payrollDebug', debug);
   }
   return byEmployee;
 }
