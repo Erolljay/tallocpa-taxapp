@@ -128,6 +128,7 @@ async function buildEWTAlphalist(biz, start, end, ewtMap, rateByKeyEWT) {
     const sd = suppMap[sk] || {};
     const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sk;
     const ref = item?.reference || item?.Reference || item?.invoiceNumber || item?.InvoiceNumber || '';
+    const monthIdx = Math.max(0, Math.min(2, new Date(date).getMonth() - start.getMonth()));
 
     const lines = extractEWTLines(item, ewtMap, rateByKeyEWT);
     for (const l of lines) {
@@ -137,14 +138,17 @@ async function buildEWTAlphalist(biz, start, end, ewtMap, rateByKeyEWT) {
       const pkey = sk || name;
       if (!byAtc[l.atc].payees.has(pkey)) {
         byAtc[l.atc].payees.set(pkey, {
-          name, tin: sd.tin || '', companyName: sd.companyName || '',
+          name, tin: sd.tin || '', branchCode: sd.branchCode || '', companyName: sd.companyName || '',
           lastName: sd.lastName || '', firstName: sd.firstName || '', middleName: sd.middleName || '',
           address1: sd.address1 || '', address2: sd.address2 || '',
           base: 0, ewt: 0,
+          months: [ { base: 0, ewt: 0 }, { base: 0, ewt: 0 }, { base: 0, ewt: 0 } ],
         });
       }
       const p = byAtc[l.atc].payees.get(pkey);
       p.base += l.base; p.ewt += l.ewt;
+      p.months[monthIdx].base += l.base;
+      p.months[monthIdx].ewt  += l.ewt;
 
       detail.push({
         date, ref, name, tin: sd.tin || '', atc: l.atc, desc: l.desc, rate: l.rate, base: l.base, ewt: l.ewt,
@@ -312,7 +316,11 @@ function tinDashed(t) {
   return `${d.substring(0,3)}-${d.substring(3,6)}-${d.substring(6,9)}`;
 }
 
-// ── EXCEL EXPORT ──────────────────────────────────────────────
+function branch4(b) {
+  return (b || '').toString().replace(/\D/g, '').padStart(4, '0').substring(0, 4) || '0000';
+}
+
+// ── EXCEL EXPORT (official BIR QAP layout, Attachment to 1601-EQ) ──
 function exportEQExcel(atcRows, setup, period) {
   if (!window.XLSX) {
     const s = document.createElement('script');
@@ -320,34 +328,72 @@ function exportEQExcel(atcRows, setup, period) {
     s.onload = () => exportEQExcel(atcRows, setup, period);
     document.head.appendChild(s); return;
   }
-  const isInd = setup.classification === 'Individual';
-  const ownerName = isInd
-    ? [setup.lastName, [setup.firstName, setup.middleName].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-    : (setup.companyName || setup.taxpayerName || '');
+  const qEndMonthName = period.end ? monthName(period.end.getMonth()).toUpperCase() : '';
+  const year = period.end ? period.end.getFullYear() : period.year;
+  const agentName = (setup.companyName || setup.taxpayerName || '').toUpperCase();
 
   const data = [
-    ['BIR FORM 1601-EQ — SCHEDULE OF ALPHALIST (ATC SUMMARY)'],
-    [`Period: ${period.label}`],
-    [`TIN: ${tinDashed(setup.tin)}`],
-    [`Withholding Agent: ${ownerName.toUpperCase()}`],
+    ['Attachment to BIR Form 1601-EQ'],
+    ['QUARTERLY ALPHABETICAL LIST OF PAYEES SUBJECTED TO EXPANDED WITHHOLDING TAX & PAYEES WHOSE INCOME PAYMENTS ARE EXEMPT '],
+    [`FOR THE QUARTER ENDING ${qEndMonthName}, ${year}`],
+    [`TIN : ${tinDashed(setup.tin)}-${branch4(setup.branchCode)}`],
+    [`WITHHOLDING AGENT'S NAME: ${agentName}`],
     [],
-    ['ATC','Nature of Income Payment','Tax Rate (%)','Tax Base','Tax Withheld'],
+    [
+      'SEQ NO', 'TAXPAYER IDENTIFICATION NUMBER', 'CORPORATION (Registered Name)',
+      'INDIVIDUAL (Last Name, First Name, Middle Name)', 'ATC CODE', 'NATURE OF PAYMENT',
+      '1ST MONTH OF QUARTER', '', '',
+      '2ND MONTH OF QUARTER', '', '',
+      '3RD MONTH OF QUARTER', '', '',
+      'TOTAL FOR QUARTER', '',
+    ],
+    [
+      '', '', '', '', '', '',
+      'AMOUNT OF INCOME PAYMENT', 'TAX RATE', 'TAX WITHHELD',
+      'AMOUNT OF INCOME PAYMENT', 'TAX RATE', 'TAX WITHHELD',
+      'AMOUNT OF INCOME PAYMENT', 'TAX RATE', 'TAX WITHHELD',
+      'TOTAL AMOUNT', 'TOTAL TAX WITHHELD',
+    ],
   ];
-  atcRows.forEach(r => data.push([r.atc, r.desc, r.rate, r.base, r.ewt]));
-  data.push(['','TOTAL','', atcRows.reduce((a,r)=>a+r.base,0), atcRows.reduce((a,r)=>a+r.ewt,0)]);
 
-  // Per-payee detail sheet
-  const payeeData = [['ATC','Payee Name','TIN','Tax Base','Tax Withheld']];
+  let seq = 0, totBase = 0, totEwt = 0;
   atcRows.forEach(r => {
     r.payees.forEach(p => {
-      const name = p.companyName || [p.lastName, p.firstName, p.middleName].filter(Boolean).join(', ') || p.name;
-      payeeData.push([r.atc, name.toUpperCase(), tinDashed(p.tin), p.base, p.ewt]);
+      seq++;
+      const isIndividual = !p.companyName && (p.lastName || p.firstName);
+      const corpName = isIndividual ? '' : (p.companyName || p.name || '').toUpperCase();
+      const indName  = isIndividual
+        ? [p.lastName, p.firstName, p.middleName].filter(Boolean).join(', ').toUpperCase()
+        : '';
+      const m = p.months || [{base:0,ewt:0},{base:0,ewt:0},{base:0,ewt:0}];
+      totBase += p.base; totEwt += p.ewt;
+
+      data.push([
+        seq,
+        `${tinDashed(p.tin)}-${branch4(p.branchCode)}`,
+        corpName,
+        indName,
+        r.atc,
+        r.desc,
+        Number(m[0].base.toFixed(2)), r.rate, Number(m[0].ewt.toFixed(2)),
+        Number(m[1].base.toFixed(2)), r.rate, Number(m[1].ewt.toFixed(2)),
+        Number(m[2].base.toFixed(2)), r.rate, Number(m[2].ewt.toFixed(2)),
+        Number(p.base.toFixed(2)), Number(p.ewt.toFixed(2)),
+      ]);
     });
   });
 
+  data.push([
+    '', '', '', '', '', 'Grand Total :',
+    '', '', '', '', '', '', '', '', '',
+    Number(totBase.toFixed(2)), Number(totEwt.toFixed(2)),
+  ]);
+  data.push(['------------------']);
+  data.push(['==================']);
+  data.push(['END OF REPORT']);
+
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), 'ATC Summary');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(payeeData), 'Alphalist');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), 'Sheet1');
   XLSX.writeFile(wb, `1601EQ_${period.label.replace(/[\s()–\/]/g,'_')}.xlsx`);
 }
 
