@@ -70,8 +70,44 @@ function findAccountByName(coa, nameSubstr) {
   return Object.values(coa).find(a => (a.name || '').toLowerCase().includes(needle)) || null;
 }
 
+// Tax-code rate cache, keyed by Manager tax-code GUID. Needed to back
+// VAT out of invoice/receipt/payment line amounts (which only carry
+// qty + unitPrice + taxCode, not a precomputed net amount) — see
+// `lineAmounts()` in shared.js, the same helper the SLS/SLP/EWT
+// reports already use.
+let _taxRateCache = {};
+async function loadTaxCodeRates(biz) {
+  if (_taxRateCache[biz]) return _taxRateCache[biz];
+  const taxCodes = await fetchManagerTaxCodes(biz);
+  const rateByKey = {};
+  for (const tc of taxCodes) rateByKey[tc.key] = tc.rate;
+  _taxRateCache[biz] = rateByKey;
+  return rateByKey;
+}
+
+function pnlLineTaxCodeKey(line) {
+  const tc = line?.taxCode ?? line?.TaxCode ?? '';
+  return (tc && typeof tc === 'object') ? (tc.key || tc.Key || '') : (tc || '');
+}
+
+// Journal-entry lines carry real credit/debit fields; invoice/receipt/
+// payment lines only carry qty + unitPrice (+ optional discount/tax),
+// so their GL amount has to be computed via lineAmounts(). Returns a
+// signed contribution suitable for direct summation into income (CR
+// normal balance) or cogs/opex (DR normal balance) buckets.
+function pnlLineAmount(item, line, rateByKey, bucket) {
+  const hasCredit = line.credit !== undefined || line.Credit !== undefined;
+  const hasDebit  = line.debit  !== undefined || line.Debit  !== undefined;
+  if (hasCredit || hasDebit) {
+    const credit = Number(line.credit ?? line.Credit ?? 0);
+    const debit  = Number(line.debit  ?? line.Debit  ?? 0);
+    return bucket === 'income' ? (credit - debit) : (debit - credit);
+  }
+  return lineAmounts(item, line, rateByKey).net; // always a positive magnitude
+}
+
 // ── TRANSACTION AGGREGATOR ───────────────────────────────────
-// Sums credit - debit per account GUID across all transaction
+// Sums net activity per account GUID across all transaction
 // batches for the given date range, restricted to P&L accounts
 // (per the COA cache). Returns:
 //   { byAccount: { [guid]: { amount, name, bucket, untaxedAmount } },
@@ -85,6 +121,7 @@ async function aggregateAccountActivity(biz, periodStart, periodEnd, coa) {
     'payment-batch',
   ];
 
+  const rateByKey = await loadTaxCodeRates(biz);
   const byAccount = {};
   const totals = { income: 0, cogs: 0, opex: 0 };
 
@@ -96,24 +133,22 @@ async function aggregateAccountActivity(biz, periodStart, periodEnd, coa) {
     return byAccount[guid];
   }
 
-  function applyLine(line, dateStr) {
+  function applyLine(line, item, dateStr) {
     if (!inRange(dateStr, periodStart, periodEnd)) return;
-    const guid = line.account;
+    const guid = line.account || line.Account;
     if (!guid) return;
     const meta = coa[guid];
     if (!meta || !meta.isProfitAndLossAccount) return;
 
-    const credit = line.credit || 0;
-    const debit = line.debit || 0;
-    const net = credit - debit;
+    const amount = pnlLineAmount(item, line, rateByKey, meta.bucket);
 
     const row = ensure(guid);
-    row.amount += net;
-    if (!line.taxCode) row.untaxedAmount += net;
+    row.amount += amount;
+    if (!pnlLineTaxCodeKey(line)) row.untaxedAmount += amount;
 
-    if (meta.bucket === 'income') totals.income += net;
-    else if (meta.bucket === 'cogs') totals.cogs += net;
-    else if (meta.bucket === 'opex') totals.opex += net;
+    if (meta.bucket === 'income') totals.income += amount;
+    else if (meta.bucket === 'cogs') totals.cogs += amount;
+    else if (meta.bucket === 'opex') totals.opex += amount;
   }
 
   for (const batchPath of batches) {
@@ -122,7 +157,7 @@ async function aggregateAccountActivity(biz, periodStart, periodEnd, coa) {
       const v = it.item || it.value || it;
       const date = v.date || v.issueDate || v.invoiceDate || v.receiptDate || v.paymentDate;
       const lines = v.Lines || v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
-      for (const line of lines) applyLine(line, date);
+      for (const line of lines) applyLine(line, v, date);
     }
   }
 
@@ -132,12 +167,15 @@ async function aggregateAccountActivity(biz, periodStart, periodEnd, coa) {
 // ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───
 // Looks up the running balance of "Prepaid Tax Asset-2306"
 // (individual) or "Prepaid Tax Asset-2307" (corporate) as of a
-// given cutoff date, by summing debit-credit on that account
-// from all transactions up to (and including) the cutoff.
+// given cutoff date, by summing debit-credit (or, for invoice/
+// receipt/payment lines that only carry qty+unitPrice, the computed
+// net amount) on that account from all transactions up to (and
+// including) the cutoff.
 async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr) {
   const account = findAccountByName(coa, accountNameSubstr);
   if (!account) return 0;
 
+  const rateByKey = await loadTaxCodeRates(biz);
   const batches = [
     'journal-entry-batch',
     'sales-invoice-batch',
@@ -155,8 +193,15 @@ async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr
       if (!date || new Date(date) > cutoffDate) continue;
       const lines = v.Lines || v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
       for (const line of lines) {
-        if (line.account !== account.key) continue;
-        balance += (line.debit || 0) - (line.credit || 0);
+        const guid = line.account || line.Account;
+        if (guid !== account.key) continue;
+        const hasCredit = line.credit !== undefined || line.Credit !== undefined;
+        const hasDebit  = line.debit  !== undefined || line.Debit  !== undefined;
+        if (hasCredit || hasDebit) {
+          balance += Number(line.debit ?? line.Debit ?? 0) - Number(line.credit ?? line.Credit ?? 0);
+        } else {
+          balance += lineAmounts(v, line, rateByKey).net;
+        }
       }
     }
   }
