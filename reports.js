@@ -153,6 +153,15 @@ const REPORTS = [
     phase: 3,
     available: false,
   },
+  {
+    id: 'a1b2c3d4-0008-4000-8000-000000000001',
+    name: 'Tax Reconciliation Report',
+    file: 'tax-recon.html',
+    group: 'Income Tax',
+    req: 'all',
+    phase: 3,
+    available: true,
+  },
 
   // ── INCOME TAX – CORPORATION ─────────────────────────────────
   {
