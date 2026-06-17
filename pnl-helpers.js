@@ -121,7 +121,7 @@ async function aggregateAccountActivity(biz, periodStart, periodEnd, coa) {
     for (const it of items) {
       const v = it.item || it.value || it;
       const date = v.date || v.issueDate || v.invoiceDate || v.receiptDate || v.paymentDate;
-      const lines = v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
+      const lines = v.Lines || v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
       for (const line of lines) applyLine(line, date);
     }
   }
@@ -153,7 +153,7 @@ async function getPrepaidTaxAssetBalance(biz, coa, cutoffDate, accountNameSubstr
       const v = it.item || it.value || it;
       const date = v.date || v.issueDate || v.invoiceDate || v.receiptDate || v.paymentDate;
       if (!date || new Date(date) > cutoffDate) continue;
-      const lines = v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
+      const lines = v.Lines || v.lines || v.invoiceLines || v.receiptLines || v.paymentLines || v.journalEntryLines || [];
       for (const line of lines) {
         if (line.account !== account.key) continue;
         balance += (line.debit || 0) - (line.credit || 0);
