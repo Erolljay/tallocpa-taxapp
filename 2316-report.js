@@ -174,19 +174,15 @@ function render2316Cert(emp, monthly, months, setup, year) {
           <div class="form-rev">September 2021(ENCS)</div>
         </div>
         <div class="hd-mid">
-          <div class="seal-row">
-            <div class="seal">BIR<br>SEAL</div>
-            <div class="gov-lines">
-              Republic of the Philippines<br>
-              Department of Finance<br>
-              <strong>Bureau of Internal Revenue</strong>
-            </div>
+          <div class="gov-lines">
+            Republic of the Philippines<br>
+            Department of Finance<br>
+            <strong>Bureau of Internal Revenue</strong>
           </div>
           <div class="bir-title">Certificate of Compensation Payment / Tax Withheld</div>
           <div class="bir-sub">For Compensation Payment With or Without Tax Withheld</div>
         </div>
         <div class="hd-code">
-          <div class="barcode-fallback">▌█║▌║█▌║║█▌▌█║</div>
           <div class="form-tag">2316 9/21ENCS</div>
         </div>
       </div>
