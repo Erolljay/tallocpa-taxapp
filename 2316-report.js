@@ -167,10 +167,30 @@ function render2316Cert(emp, monthly, months, setup, year) {
   return `
     <div class="f2316">
       <div class="f2316-head">
-        <div class="bir-no">BIR Form No. 2316 — September 2021 (ENCS)</div>
-        <div class="bir-title">Certificate of Compensation Payment / Tax Withheld</div>
-        <div class="bir-sub">For Compensation Payment With or Without Tax Withheld</div>
+        <div class="hd-form">
+          <div class="for-bir">For BIR<br>Use Only&nbsp;&nbsp;BCS/<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Item:</div>
+          <div class="form-label">BIR Form No.</div>
+          <div class="form-no">2316</div>
+          <div class="form-rev">September 2021(ENCS)</div>
+        </div>
+        <div class="hd-mid">
+          <div class="seal-row">
+            <div class="seal">BIR<br>SEAL</div>
+            <div class="gov-lines">
+              Republic of the Philippines<br>
+              Department of Finance<br>
+              <strong>Bureau of Internal Revenue</strong>
+            </div>
+          </div>
+          <div class="bir-title">Certificate of Compensation Payment / Tax Withheld</div>
+          <div class="bir-sub">For Compensation Payment With or Without Tax Withheld</div>
+        </div>
+        <div class="hd-code">
+          <div class="barcode-fallback">▌█║▌║█▌║║█▌▌█║</div>
+          <div class="form-tag">2316 9/21ENCS</div>
+        </div>
       </div>
+      <div class="f2316-fill-note">Fill in all applicable spaces. Mark all appropriate boxes with an "X".</div>
 
       <div class="f2316-yp">
         <div>1 For the Year <span class="box">${escHtml(String(year))}</span></div>

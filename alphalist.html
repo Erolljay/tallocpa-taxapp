@@ -36,7 +36,7 @@
       </div>
     </div>
   </div>
-  <div id="tab-2316" class="tab-panel no-print">
+  <div id="tab-2316" class="tab-panel">
     <div class="filter-bar no-print"></div>
     <div id="form2316-output">
       <div class="alert alert-info">
@@ -60,10 +60,24 @@
 
   /* BIR Form 2316 replica */
   .f2316 { font-size:10px; border:1.5px solid #000; padding:8px; max-width:1000px; margin:0 auto 24px; }
-  .f2316-head { text-align:center; margin-bottom:6px; }
+  .f2316-head { display:flex; align-items:stretch; border:1px solid #000; margin-bottom:6px; }
+  .f2316-head .hd-form { flex:0 0 110px; border-right:1px solid #000; padding:4px 6px; text-align:center; }
+  .f2316-head .hd-form .for-bir { font-size:7px; text-align:left; border-bottom:1px solid #000; margin:-4px -6px 4px; padding:2px 4px; }
+  .f2316-head .hd-form .form-label { font-size:7px; }
+  .f2316-head .hd-form .form-no { font-size:20px; font-weight:700; line-height:1; margin:1px 0; }
+  .f2316-head .hd-form .form-rev { font-size:7px; }
+  .f2316-head .hd-mid { flex:1; padding:6px 8px; text-align:center; }
+  .f2316-head .hd-mid .seal-row { display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:2px; }
+  .f2316-head .hd-mid .seal { width:30px; height:30px; border-radius:50%; border:1px solid #000; display:flex; align-items:center; justify-content:center; font-size:6px; text-align:center; flex:0 0 30px; }
+  .f2316-head .hd-mid .gov-lines { font-size:8px; line-height:1.2; }
   .f2316-head .bir-no { font-size:9px; }
-  .f2316-head .bir-title { font-size:15px; font-weight:700; }
+  .f2316-head .bir-title { font-size:15px; font-weight:700; margin-top:2px; }
   .f2316-head .bir-sub { font-size:9px; font-style:italic; }
+  .f2316-head .hd-code { flex:0 0 90px; border-left:1px solid #000; padding:4px 6px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; }
+  .f2316-head .hd-code .barcode { font-family: 'Libre Barcode 39', monospace; letter-spacing:1px; font-size:18px; line-height:1; writing-mode:horizontal-tb; }
+  .f2316-head .hd-code .barcode-fallback { font-size:14px; letter-spacing:-1px; font-weight:700; }
+  .f2316-head .hd-code .form-tag { font-size:7px; font-weight:700; }
+  .f2316-fill-note { font-size:8px; padding:2px 0 4px; }
   .f2316-yp { display:flex; gap:16px; border-bottom:1px solid #000; padding:4px 0; margin-bottom:4px; }
   .f2316-yp .box { border:1px solid #9ca3af; padding:2px 6px; font-weight:600; }
   .f2316-cols { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; align-items:start; }
