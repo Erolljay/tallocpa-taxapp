@@ -14,14 +14,14 @@ async function init1601CReport() {
     App.currentBusiness = biz;
   } catch (e) {
     outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Could not connect to Manager: ${escHtml(e.message)}</div>`;
-    return;
+    return null;
   }
 
   outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading business setup…</span></div>`;
   const setup = await loadSetup(biz);
   if (!setup) {
     outputEl.innerHTML = `<div class="alert alert-warn">⚠️ Business info not configured. Fill in the <strong>Business</strong> tab in the Tallo CPA extension first.</div>`;
-    return;
+    return null;
   }
   outputEl.innerHTML = '';
 
@@ -33,6 +33,142 @@ async function init1601CReport() {
     </div>`);
 
   document.getElementById('c1601-gen').addEventListener('click', () => generate1601C(biz, setup, outputEl));
+  return biz;
+}
+
+// ── EMPLOYEE TAX STATUS TAB ─────────────────────────────────────
+// Bulk list-and-edit view so the preparer can review every employee's
+// Tax Status (MWE/NMWE) at a glance and correct it before running any
+// 1601-C/1604-C/2316 report — those reports now skip employees whose
+// Tax Status is blank, so this tab is how blanks get fixed.
+let _taxStatusState = { biz: null, birGuids: null, employees: [] };
+
+async function initEmployeeTaxStatusTab(biz) {
+  _taxStatusState.biz = biz;
+  const outputEl = document.getElementById('taxstatus-output');
+  const filterEl = document.getElementById('taxstatus-filter-bar');
+  filterEl.innerHTML = `
+    <input type="text" id="ts-search" placeholder="Search employee…" style="font-size:12px;min-width:220px;">
+    <button class="btn btn-outline" id="ts-refresh">🔄 Refresh</button>
+  `;
+  document.getElementById('ts-refresh').addEventListener('click', loadTaxStatusList);
+  document.getElementById('ts-search').addEventListener('input', renderTaxStatusList);
+  await loadTaxStatusList();
+
+  async function loadTaxStatusList() {
+    outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Loading employees…</span></div>`;
+    try {
+      const [raw, birGuids] = await Promise.all([
+        fetchAllBatch('/api4/employee-batch', biz),
+        ensureBIRFields(biz),
+      ]);
+      _taxStatusState.birGuids = birGuids;
+      _taxStatusState.employees = raw.map(it => {
+        const value = it.item || it.value || {};
+        const cf = parseBIRBlob((value.customFields2 && value.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
+        const taxStatusFieldId = (window.CF && window.CF.EMPLOYEE_FIELDS[5].id);
+        return {
+          key: it.key,
+          value,
+          name: value.name || value.Name || it.key,
+          tin: cf[(window.CF && window.CF.EMPLOYEE_FIELDS[0].id)] || '',
+          taxStatus: cf[taxStatusFieldId] || '',
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      renderTaxStatusList();
+    } catch (err) {
+      outputEl.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderTaxStatusList() {
+    const q = (document.getElementById('ts-search').value || '').toLowerCase();
+    const rows = _taxStatusState.employees.filter(e => !q || e.name.toLowerCase().includes(q));
+    const blanks = _taxStatusState.employees.filter(e => !e.taxStatus).length;
+
+    const opts = [
+      { v: '', l: '-- not set --' },
+      { v: 'MWE', l: 'MWE - Minimum Wage Earner' },
+      { v: 'NMWE', l: 'NMWE - Non-Minimum Wage Earner' },
+    ];
+
+    outputEl.innerHTML = `
+      ${blanks ? `<div class="alert alert-warn">⚠️ ${blanks} employee(s) have no Tax Status set — they are excluded from 1601-C, 1604-C, and 2316 reports until fixed here.</div>` : ''}
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Employee</th><th>TIN</th><th>Tax Status</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map(e => `
+              <tr data-emp-key="${escHtml(e.key)}">
+                <td>${escHtml(e.name)}</td>
+                <td style="font-family:monospace;">${escHtml(e.tin || '—')}</td>
+                <td>
+                  <select class="ts-select" data-emp-key="${escHtml(e.key)}" style="font-size:12px;${!e.taxStatus ? 'border-color:#f59e0b;' : ''}">
+                    ${opts.map(o => `<option value="${o.v}"${o.v === e.taxStatus ? ' selected' : ''}>${escHtml(o.l)}</option>`).join('')}
+                  </select>
+                </td>
+                <td><button class="btn btn-outline ts-save-row" data-emp-key="${escHtml(e.key)}" style="font-size:11px;padding:2px 10px;">Save</button></td>
+              </tr>`).join('') || `<tr><td colspan="4" style="text-align:center;color:#9ca3af;">No employees found</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" id="ts-save-all">💾 Save All</button>
+      </div>`;
+
+    outputEl.querySelectorAll('.ts-save-row').forEach(btn => {
+      btn.addEventListener('click', () => saveTaxStatusRow(btn.dataset.empKey, btn));
+    });
+    document.getElementById('ts-save-all').addEventListener('click', saveAllTaxStatus);
+  }
+
+  async function saveTaxStatusRow(empKey, btn) {
+    const emp = _taxStatusState.employees.find(e => e.key === empKey);
+    const select = outputEl.querySelector(`.ts-select[data-emp-key="${empKey}"]`);
+    if (!emp || !select) return;
+    const newStatus = select.value;
+    try {
+      const updated = await window.CF.saveEmployeeTaxStatus(biz, emp.key, emp.value, newStatus, _taxStatusState.birGuids);
+      emp.value = updated;
+      emp.taxStatus = newStatus;
+      select.style.borderColor = '';
+      if (btn) flashSaveBtn(btn, true);
+    } catch (err) {
+      if (btn) flashSaveBtn(btn, false);
+      console.error(err);
+    }
+  }
+
+  async function saveAllTaxStatus() {
+    const btn = document.getElementById('ts-save-all');
+    const selects = [...outputEl.querySelectorAll('.ts-select')];
+    let ok = 0, fail = 0;
+    for (const select of selects) {
+      const empKey = select.dataset.empKey;
+      const emp = _taxStatusState.employees.find(e => e.key === empKey);
+      if (!emp || emp.taxStatus === select.value) continue; // nothing changed
+      try {
+        const updated = await window.CF.saveEmployeeTaxStatus(biz, emp.key, emp.value, select.value, _taxStatusState.birGuids);
+        emp.value = updated;
+        emp.taxStatus = select.value;
+        select.style.borderColor = '';
+        ok++;
+      } catch (err) {
+        fail++;
+        console.error(err);
+      }
+    }
+    flashSaveBtn(btn, fail === 0, ok ? `Saved ${ok}` : 'No changes');
+    if (ok) renderTaxStatusList();
+  }
+}
+
+function flashSaveBtn(btn, success, label) {
+  if (!btn) return;
+  const original = btn.textContent;
+  btn.textContent = success ? `✓ ${label || 'Saved'}` : '✗ Failed';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
 }
 
 
@@ -52,7 +188,8 @@ async function generate1601C(biz, setup, outputEl) {
     let totals = { line14:0, line17:0, line18:0, line19:0, line20:0, line21:0, line22:0, line23:0, line24:0, line25:0 };
 
     for (const [empKey, data] of Object.entries(byEmployee)) {
-      const emp = employees[empKey] || { name: empKey, taxStatus: 'NMWE' };
+      const emp = employees[empKey];
+      if (!emp || !emp.taxStatus) continue; // exclude employees with no Tax Status set
       const computed = computeEmployee1601C(data.months, emp.taxStatus);
       const m = computed[month];
       if (!m.line14) continue; // skip employees with no pay this month

@@ -70,11 +70,18 @@ async function generate2316() {
       return;
     }
 
-    const certs = empKeys.map(key => {
-      const emp = employees[key] || { name: key, taxStatus: 'NMWE' };
-      const monthly = computeEmployee1601C(byEmployee[key].months, emp.taxStatus);
-      return render2316Cert(emp, monthly, byEmployee[key].months, setup, year);
-    });
+    const certs = empKeys
+      .filter(key => employees[key] && employees[key].taxStatus) // exclude employees with no Tax Status set
+      .map(key => {
+        const emp = employees[key];
+        const monthly = computeEmployee1601C(byEmployee[key].months, emp.taxStatus);
+        return render2316Cert(emp, monthly, byEmployee[key].months, setup, year);
+      });
+
+    if (!certs.length) {
+      outputEl.innerHTML = `<div class="alert alert-warn">⚠️ No employees with a Tax Status set found for ${year}.</div>`;
+      return;
+    }
 
     outputEl.innerHTML = certs.join('<div class="page-break" style="break-after:page;"></div>');
     document.getElementById('f2316-print').style.display = '';
@@ -84,6 +91,9 @@ async function generate2316() {
 }
 
 // ── RENDER A SINGLE 2316 CERTIFICATE ───────────────────────────
+// Field numbering/grouping mirrors BIR Form No. 2316 (September 2021 ENCS)
+// exactly — Part I/II/III on the left, Part IV-B (A. Non-Taxable / B.
+// Taxable) on the right, Part IV-A Summary totals at the bottom-left.
 function render2316Cert(emp, monthly, months, setup, year) {
   const isMWE = emp.taxStatus === 'MWE';
   const name = [emp.lastName, emp.firstName, emp.middleName].filter(Boolean).join(', ') || emp.name;
@@ -94,24 +104,50 @@ function render2316Cert(emp, monthly, months, setup, year) {
   const nonTaxable  = sum('line21');
   const taxableComp = sum('line22');
   const taxWithheld = sum('line25');
+  const contributions = sum('line19'); // SSS/GSIS/PHIC/HDMF employee share (Item 36)
 
-  // Supplementary / breakdown of gross compensation by category
+  // Breakdown of gross compensation by category
   const catTotal = (cat) => months.reduce((a, b) => a + (b[cat] || 0), 0);
   const basic       = catTotal(PH_CAT.BASIC);
   const ot          = catTotal(PH_CAT.OT);
   const holiday     = catTotal(PH_CAT.HOLIDAY);
   const nightDiff   = catTotal(PH_CAT.NIGHT_DIFF);
   const hazard      = catTotal(PH_CAT.HAZARD);
-  const thirteenth  = catTotal(PH_CAT.THIRTEENTH);
   const deMinimis   = catTotal(PH_CAT.DE_MINIMIS);
   const otherTax    = catTotal(PH_CAT.OTHER_TAXABLE);
   const commission  = catTotal(PH_CAT.COMMISSION);
   const profitShare = catTotal(PH_CAT.PROFIT_SHARE);
   const directorFee = catTotal(PH_CAT.DIRECTOR_FEE);
   const separation  = catTotal(PH_CAT.SEPARATION);
-  const sssEe       = catTotal(PH_CAT.SSS_EE);
-  const phicEe      = catTotal(PH_CAT.PHIC_EE);
-  const hdmfEe      = catTotal(PH_CAT.HDMF_EE);
+
+  // ── Part IV-B, A. Non-Taxable/Exempt Compensation Income (Items 29-38) ──
+  // Item 29 (MWE basic) is reported net of contributions (line15, fixed the
+  // same way as 1601-C Line 15) so Item 38's total reconciles to line21
+  // without double-exempting the same peso via both Item 29 and Item 36.
+  const item29 = sum('line15');                 // Basic Salary (MWE, net of contributions)
+  const item30 = isMWE ? holiday : 0;            // Holiday Pay (MWE)
+  const item31 = isMWE ? ot : 0;                 // Overtime Pay (MWE)
+  const item32 = isMWE ? nightDiff : 0;          // Night Shift Differential (MWE)
+  const item33 = isMWE ? hazard : 0;             // Hazard Pay (MWE)
+  const item34 = sum('line17');                  // 13th Month Pay & Other Benefits (capped, non-taxable portion)
+  const item35 = deMinimis;                      // De Minimis Benefits
+  const item36 = contributions;                  // SSS/GSIS/PHIC/HDMF + Union Dues (employee share)
+  const item37 = separation;                     // Salaries and Other Forms of Compensation (non-taxable)
+  const item38 = item29 + item30 + item31 + item32 + item33 + item34 + item35 + item36 + item37;
+
+  // ── Part IV-B, B. Taxable Compensation Income (Items 39-52) ─────────────
+  // Item 39 (NMWE basic) is likewise net of contributions, mirroring Item 29,
+  // so Item 52's total reconciles exactly to line22.
+  const item39  = isMWE ? 0 : Math.max(0, basic - contributions); // Basic Salary
+  const item44  = otherTax;                       // Others
+  const item45  = commission;                      // Commission
+  const item46  = profitShare;                     // Profit Sharing
+  const item47  = directorFee;                     // Fees Including Director's Fees
+  const item48  = sum('thirteenthExcess');         // Taxable 13th Month Benefits (excess over P90,000 cap)
+  const item49  = isMWE ? 0 : hazard;               // Hazard Pay
+  const item50  = isMWE ? 0 : ot;                   // Overtime Pay
+  const item51a = isMWE ? 0 : (holiday + nightDiff); // Others — Holiday Pay / Night Shift Differential
+  const item52  = item39 + item44 + item45 + item46 + item47 + item48 + item49 + item50 + item51a;
 
   // Annual tax due (per TRAIN graduated table on taxable income)
   const taxDue = computeAnnualTax(taxableComp);
@@ -121,52 +157,106 @@ function render2316Cert(emp, monthly, months, setup, year) {
     ? [setup.lastName, setup.firstName, setup.middleName].filter(Boolean).join(', ')
     : (setup.companyName || setup.taxpayerName || '');
 
+  const field = (num, label, value) => `
+    <div class="f2316-field"><span class="f2316-num">${escHtml(String(num))}</span>
+      <span class="f2316-label">${label}</span><span class="f2316-fill">${escHtml(value || '')}</span>
+    </div>`;
+  const item = (num, label, amount, totalCls = '') => `
+    <div class="f2316-item ${totalCls}"><span class="lbl"><strong>${escHtml(String(num))}</strong> ${label}</span><span class="amt">${fmt(amount)}</span></div>`;
+
   return `
-    <div class="form-title">
-      <h2>BIR Form 2316 — Certificate of Compensation Payment / Tax Withheld</h2>
-      <div class="sub">For the Year ${year}</div>
-    </div>
+    <div class="f2316">
+      <div class="f2316-head">
+        <div class="bir-no">BIR Form No. 2316 — September 2021 (ENCS)</div>
+        <div class="bir-title">Certificate of Compensation Payment / Tax Withheld</div>
+        <div class="bir-sub">For Compensation Payment With or Without Tax Withheld</div>
+      </div>
 
-    <div class="return-section">
-      <div class="return-section-header">Part I – Employee Information</div>
-      <div class="return-line"><div class="return-line-label">Employee Name</div><div class="return-line-amt" style="font-size:11px;">${escHtml(name)}</div></div>
-      <div class="return-line"><div class="return-line-label">TIN</div><div class="return-line-amt">${escHtml(tinDashed1601(emp.tin))}</div></div>
-      <div class="return-line"><div class="return-line-label">Address</div><div class="return-line-amt" style="font-size:11px;">${escHtml(emp.address || '—')} ${escHtml(emp.zipCode || '')}</div></div>
-      <div class="return-line"><div class="return-line-label">Tax Status</div><div class="return-line-amt">${isMWE ? 'MWE — Minimum Wage Earner' : 'NMWE — Non-Minimum Wage Earner'}</div></div>
-    </div>
+      <div class="f2316-yp">
+        <div>1 For the Year <span class="box">${escHtml(String(year))}</span></div>
+        <div>2 For the Period <span class="box">01/01</span> To <span class="box">12/31</span></div>
+      </div>
 
-    <div class="return-section">
-      <div class="return-section-header">Part II – Employer Information (Present Employer)</div>
-      <div class="return-line"><div class="return-line-label">Employer Name</div><div class="return-line-amt" style="font-size:11px;">${escHtml(employerName)}</div></div>
-      <div class="return-line"><div class="return-line-label">TIN</div><div class="return-line-amt">${escHtml(tinDashed1601(setup.tin))}</div></div>
-      <div class="return-line"><div class="return-line-label">RDO Code</div><div class="return-line-amt">${escHtml(setup.rdoCode || '—')}</div></div>
-      <div class="return-line"><div class="return-line-label">Registered Address</div><div class="return-line-amt" style="font-size:11px;">${escHtml(setup.address || '—')}</div></div>
-    </div>
+      <div class="f2316-cols">
+        <div class="f2316-col">
+          <div class="f2316-part-title">Part I – Employee Information</div>
+          ${field(3, 'TIN', tinDashed1601(emp.tin))}
+          ${field(4, "Employee's Name (Last, First, Middle)", name)}
+          ${field(5, 'RDO Code', setup.rdoCode)}
+          ${field(6, 'Registered Address', emp.address)}
+          ${field('6A', 'ZIP Code', emp.zipCode)}
+          ${field(7, 'Date of Birth', emp.dateOfBirth)}
+          ${field(8, 'Contact Number', emp.contactNumber)}
+          <div class="f2316-mwe-box">
+            <strong>11</strong> Minimum Wage Earner (MWE) whose compensation is exempt from withholding tax and not subject to income tax:
+            <strong>${isMWE ? '☑ YES' : '☐ NO'}</strong>
+          </div>
 
-    <div class="return-section">
-      <div class="return-section-header">Part IV-A – Summary</div>
-      ${returnLine(19, 'Gross Compensation Income', grossComp, true)}
-      ${returnLine(20, 'Less: Non-Taxable / Exempt Compensation Income', nonTaxable)}
-      ${returnLine(21, 'Taxable Compensation Income', taxableComp, true)}
-      ${returnLine(24, 'Tax Due', taxDue, true)}
-      ${returnLine(25, 'Less: Tax Withheld for the Year', taxWithheld)}
-      ${returnLine(27, 'Total Amount of Taxes Withheld', taxWithheld, true, 'highlight')}
-    </div>
+          <div class="f2316-part-title">Part II – Employer Information (Present)</div>
+          ${field(12, 'TIN', tinDashed1601(setup.tin))}
+          ${field(13, "Employer's Name", employerName)}
+          ${field(14, 'Registered Address', setup.address)}
+          ${field('14A', 'ZIP Code', setup.zipCode)}
 
-    <div class="return-section">
-      <div class="return-section-header">Part IV-B – Details of Compensation Income and Tax Withheld</div>
-      ${returnLine('29', 'Basic Salary', basic)}
-      ${returnLine('29a', 'Overtime Pay', ot)}
-      ${returnLine('29b', 'Holiday Pay', holiday)}
-      ${returnLine('29c', 'Night Shift Differential', nightDiff)}
-      ${returnLine('29d', 'Hazard Pay', hazard)}
-      ${returnLine('30', 'Commission', commission)}
-      ${returnLine('31', 'Profit Sharing', profitShare)}
-      ${returnLine('32', "Fees Including Director's Fees", directorFee)}
-      ${returnLine('33', 'Other Taxable Compensation', otherTax)}
-      ${returnLine('34', 'Separation Pay / Retirement Benefits', separation)}
-      ${returnLine('45', '13th Month Pay and Other Benefits (Total)', thirteenth)}
-      ${returnLine('46', 'De Minimis Benefits', deMinimis)}
-      ${returnLine('47', 'SSS, GSIS, PHIC, HDMF Contributions &amp; Union Dues (Employee share)', sssEe + phicEe + hdmfEe)}
+          <div class="f2316-part-title">Part III – Employer Information (Previous)</div>
+          ${field(16, 'TIN', '')}
+          ${field(17, "Employer's Name", '')}
+          ${field(18, 'Registered Address', '')}
+
+          <div class="f2316-part-title">Part IV-A – Summary</div>
+          ${item(19, 'Gross Compensation Income from Present Employer', grossComp)}
+          ${item(20, 'Less: Total Non-Taxable/Exempt Compensation Income', item38)}
+          ${item(21, 'Taxable Compensation Income from Present Employer', item52)}
+          ${item(22, 'Add: Taxable Compensation Income from Previous Employer', 0)}
+          ${item(23, 'Gross Taxable Compensation Income', taxableComp)}
+          ${item(24, 'Tax Due', taxDue, 'total')}
+          ${item('25A', 'Amount of Taxes Withheld — Present Employer', taxWithheld)}
+          ${item('25B', 'Amount of Taxes Withheld — Previous Employer', 0)}
+          ${item(26, 'Total Amount of Taxes Withheld as Adjusted', taxWithheld)}
+          ${item(27, '5% Tax Credit (PERA Act of 2008)', 0)}
+          ${item(28, 'Total Taxes Withheld', taxWithheld, 'total')}
+        </div>
+
+        <div class="f2316-col">
+          <div class="f2316-part-title">Part IV-B – Details of Compensation Income &amp; Tax Withheld from Present Employer</div>
+          <div style="font-weight:700;margin-bottom:2px;">A. NON-TAXABLE/EXEMPT COMPENSATION INCOME</div>
+          ${item(29, 'Basic Salary (incl. exempt P250,000 & below) or SMW of the MWE', item29)}
+          ${item(30, 'Holiday Pay (MWE)', item30)}
+          ${item(31, 'Overtime Pay (MWE)', item31)}
+          ${item(32, 'Night Shift Differential (MWE)', item32)}
+          ${item(33, 'Hazard Pay (MWE)', item33)}
+          ${item(34, '13th Month Pay and Other Benefits (max. P90,000)', item34)}
+          ${item(35, 'De Minimis Benefits', item35)}
+          ${item(36, 'SSS, GSIS, PHIC & HDMF Contributions and Union Dues (Employee share)', item36)}
+          ${item(37, 'Salaries and Other Forms of Compensation', item37)}
+          ${item(38, 'Total Non-Taxable/Exempt Compensation Income', item38, 'total')}
+
+          <div style="font-weight:700;margin:6px 0 2px;">B. TAXABLE COMPENSATION INCOME REGULAR</div>
+          ${item(39, 'Basic Salary', item39)}
+          ${item(40, 'Representation', 0)}
+          ${item(41, 'Transportation', 0)}
+          ${item(42, 'Cost of Living Allowance (COLA)', 0)}
+          ${item(43, 'Fixed Housing Allowance', 0)}
+          ${item('44A', 'Others — Other Taxable Compensation', item44)}
+          <div style="font-weight:700;margin:6px 0 2px;">SUPPLEMENTARY</div>
+          ${item(45, 'Commission', item45)}
+          ${item(46, 'Profit Sharing', item46)}
+          ${item(47, "Fees Including Director's Fees", item47)}
+          ${item(48, 'Taxable 13th Month Benefits', item48)}
+          ${item(49, 'Hazard Pay', item49)}
+          ${item(50, 'Overtime Pay', item50)}
+          ${item('51A', 'Others — Holiday Pay / Night Shift Differential', item51a)}
+          ${item(52, 'Total Taxable Compensation Income', item52, 'total')}
+        </div>
+      </div>
+
+      <div class="f2316-sig">
+        I/We declare, under the penalties of perjury, that this certificate has been made in good faith, verified by me/us, and to the
+        best of my/our knowledge and belief, is true and correct, pursuant to the National Internal Revenue Code, as amended.
+        <div style="display:flex;justify-content:space-between;margin-top:8px;">
+          <div class="line">53 Present Employer/Authorized Agent Signature over Printed Name</div>
+          <div class="line">54 Employee Signature over Printed Name (CONFORME)</div>
+        </div>
+      </div>
     </div>`;
 }

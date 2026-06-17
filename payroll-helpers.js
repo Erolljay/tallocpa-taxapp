@@ -131,12 +131,21 @@ async function loadEmployeesBIR(biz) {
     result[it.key] = {
       name: rec.name || rec.Name || it.key,
       tin: get(0),
-      taxStatus: get(5) || 'NMWE',
+      employmentStatus: get(4) || 'R',
+      taxStatus: get(5) || '',
+      dateHired: get(6),
+      dateSeparated: get(7),
+      reasonSeparation: get(8) || 'NA',
+      substitutedFiling: get(9) || 'Y',
       lastName: get(10),
       firstName: get(11),
       middleName: get(12),
+      dateOfBirth: get(13),
       address: get(14),
+      region: get(15),
       zipCode: get(16),
+      contactNumber: get(17),
+      nationality: get(20) || 'FILIPINO',
     };
   });
   return result;
@@ -195,8 +204,15 @@ function computeEmployee1601C(months, taxStatus) {
     const allCats = Object.values(PH_CAT).filter(c => ![PH_CAT.WTC, PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE].includes(c));
     const line14 = sumCats(b, allCats);
 
-    // Line 15 — Statutory Minimum Wage (MWE only): basic salary
-    const line15 = isMWE ? (b[PH_CAT.BASIC] || 0) : 0;
+    // Line 19 — SSS/GSIS/PHIC/HDMF (employee share) — computed first since
+    // Line 15 (MWE only) must be reported net of these contributions to
+    // avoid double-exempting the same peso (basic pay is 100% exempt via
+    // Line 15, so contributions deducted from it can't also be exempted
+    // again via Line 19, or Line 22 taxable comp would go negative).
+    const line19 = sumCats(b, [PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE]);
+
+    // Line 15 — Statutory Minimum Wage (MWE only): basic salary net of SSS/PHIC/HDMF
+    const line15 = isMWE ? Math.max(0, (b[PH_CAT.BASIC] || 0) - line19) : 0;
 
     // Line 16 — Holiday/OT/Night Diff/Hazard (MWE only)
     const line16 = isMWE ? sumCats(b, [PH_CAT.OT, PH_CAT.HOLIDAY, PH_CAT.NIGHT_DIFF, PH_CAT.HAZARD]) : 0;
@@ -210,9 +226,6 @@ function computeEmployee1601C(months, taxStatus) {
 
     // Line 18 — De Minimis Benefits
     const line18 = b[PH_CAT.DE_MINIMIS] || 0;
-
-    // Line 19 — SSS/GSIS/PHIC/HDMF (employee share)
-    const line19 = sumCats(b, [PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE]);
 
     // Line 20 — Other Non-Taxable Compensation (separation/retirement pay, assumed exempt)
     const line20 = b[PH_CAT.SEPARATION] || 0;

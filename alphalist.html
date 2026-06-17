@@ -26,6 +26,7 @@
   <div class="tab-bar no-print" id="alphalist-tabs">
     <button class="tab-btn active" data-tab="report">📇 Alphalist Report</button>
     <button class="tab-btn" data-tab="2316">🧾 BIR Form 2316</button>
+    <button class="tab-btn" data-tab="employees">👤 Employees</button>
   </div>
   <div id="tab-report" class="tab-panel active">
     <div class="filter-bar no-print"></div>
@@ -43,12 +44,43 @@
       </div>
     </div>
   </div>
+  <div id="tab-employees" class="tab-panel no-print">
+    <p style="font-size:11px;color:#6b7280;margin-bottom:12px;">
+      Update or fill in any employee BIR details (TIN, Tax Status, dates, address, etc.) that weren't completed
+      under the Setup → Employees screen. Saving here updates the same employee record.
+    </p>
+    <div id="employees-host"></div>
+  </div>
 </div>
 <script>const REPORT_ID = "b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5";</script>
 <style>
   .form-title { text-align:center; margin-bottom:12px; }
   .form-title h2 { margin:0; font-size:16px; }
   .form-title .sub { font-size:11px; color:#6b7280; }
+
+  /* BIR Form 2316 replica */
+  .f2316 { font-size:10px; border:1.5px solid #000; padding:8px; max-width:1000px; margin:0 auto 24px; }
+  .f2316-head { text-align:center; margin-bottom:6px; }
+  .f2316-head .bir-no { font-size:9px; }
+  .f2316-head .bir-title { font-size:15px; font-weight:700; }
+  .f2316-head .bir-sub { font-size:9px; font-style:italic; }
+  .f2316-yp { display:flex; gap:16px; border-bottom:1px solid #000; padding:4px 0; margin-bottom:4px; }
+  .f2316-yp .box { border:1px solid #9ca3af; padding:2px 6px; font-weight:600; }
+  .f2316-cols { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; align-items:start; }
+  .f2316-col { border-left:1px solid #000; padding-left:8px; }
+  .f2316-col:first-child { border-left:none; padding-left:0; }
+  .f2316-part-title { background:#1f2937; color:#fff; font-weight:700; padding:2px 6px; margin:6px 0 2px; font-size:9.5px; }
+  .f2316-field { display:flex; gap:6px; margin-bottom:3px; align-items:baseline; }
+  .f2316-num { font-weight:700; min-width:14px; }
+  .f2316-label { color:#374151; flex:0 0 auto; }
+  .f2316-fill { flex:1; border-bottom:1px dotted #9ca3af; font-weight:600; padding-left:4px; }
+  .f2316-item { display:flex; justify-content:space-between; border-bottom:1px dotted #d1d5db; padding:1.5px 0; }
+  .f2316-item .lbl { color:#374151; }
+  .f2316-item .amt { font-weight:600; font-family:monospace; min-width:90px; text-align:right; }
+  .f2316-item.total { border-top:1px solid #000; border-bottom:1px solid #000; font-weight:700; margin-top:2px; }
+  .f2316-mwe-box { border:1px solid #000; padding:4px; margin:6px 0; font-size:9.5px; }
+  .f2316-sig { margin-top:14px; font-size:9px; border-top:1px solid #000; padding-top:6px; }
+  .f2316-sig .line { border-top:1px solid #000; width:260px; margin-top:18px; text-align:center; padding-top:2px; }
 </style>
 <script src="shared.js"></script>
 <script src="custom-fields.js"></script>
@@ -65,6 +97,7 @@
     if (biz && setup) {
       try { initAlphalistTab(biz, setup); } catch (e) { console.warn(e); }
       try { await init2316Tab(biz, setup); } catch (e) { console.warn(e); }
+      try { window.CF.mountEmployees(document.getElementById('employees-host')).refresh(); } catch (e) { console.warn(e); }
     }
     document.getElementById('alphalist-tabs').addEventListener('click', e => {
       const btn = e.target.closest('.tab-btn'); if (!btn) return;

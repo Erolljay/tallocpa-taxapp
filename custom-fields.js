@@ -656,6 +656,18 @@
     return { refresh: refresh };
   }
 
+  // Bulk-editable single-field save used by the 1601-C "Employee Tax Status" tab —
+  // patches just the Tax Status field (EMPLOYEE_FIELDS[5]) on one employee record.
+  async function saveEmployeeTaxStatus(business, empKey, empValue, taxStatus, birGuids) {
+    var taxStatusField = EMPLOYEE_FIELDS[5];
+    var existingBlob = parseBIRBlob((empValue.customFields2 && empValue.customFields2.strings) || {}, birGuids && birGuids.emp, 'b1r00003-');
+    var newBlob = patchCF(existingBlob, [{ field: taxStatusField, value: taxStatus }]);
+    var managerCF2 = buildBIRCustomFields(empValue, birGuids && birGuids.emp, newBlob);
+    var updated = buildSafeValue(empValue, { customFields2: managerCF2 });
+    await apiRequest('PUT', '/api4/employee', { business: business, key: empKey, value: updated });
+    return updated;
+  }
+
   // ---- PAYSLIP ITEMS SECTION ----
 
   var PAYSLIP_SUGGESTED_NAMES = {
@@ -917,6 +929,7 @@
     BUSINESS_FIELDS:   BUSINESS_FIELDS,
     PARTY_FIELDS:      PARTY_FIELDS,
     EMPLOYEE_FIELDS:   EMPLOYEE_FIELDS,
+    saveEmployeeTaxStatus: saveEmployeeTaxStatus,
   };
 
 })();
