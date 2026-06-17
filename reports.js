@@ -141,7 +141,7 @@ const REPORTS = [
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: false,
+    available: true,
   },
 
   {
