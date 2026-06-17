@@ -29,11 +29,39 @@ async function initSSSReport() {
   }
   outputEl.innerHTML = '';
 
-  filterEl.innerHTML = periodFilterHTML('monthly', 'sss');
+  const now = new Date();
+  const years = [now.getFullYear() - 2, now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+
+  filterEl.innerHTML = `
+    <div class="filter-bar" id="sss-filter">
+      <label>Period</label>
+      <select id="sss-period-type">
+        <option value="monthly" selected>Monthly</option>
+        <option value="annual">Annual</option>
+      </select>
+      <label id="sss-month-label">Month</label>
+      <select id="sss-month">
+        ${[0,1,2,3,4,5,6,7,8,9,10,11].map(m => `<option value="${m}"${m===now.getMonth()?' selected':''}>${monthName(m)}</option>`).join('')}
+      </select>
+      <label>Year</label>
+      <select id="sss-year">
+        ${years.map(y => `<option value="${y}"${y===now.getFullYear()?' selected':''}>${y}</option>`).join('')}
+      </select>
+      <div class="filter-sep"></div>
+      <button class="btn btn-primary" id="sss-gen">⚡ Generate</button>
+      <button class="btn btn-outline" id="sss-print" style="display:none;" onclick="window.print()">🖨 Print</button>
+      <button class="btn btn-success" id="sss-pdf" style="display:none;" onclick="savePDF()">💾 Save PDF</button>
+    </div>`;
   filterEl.insertAdjacentHTML('beforeend', `
     <div style="font-size:11px;color:#6b7280;margin-top:4px;">
       Business: <strong>${escHtml(biz)}</strong>
     </div>`);
+
+  document.getElementById('sss-period-type').addEventListener('change', e => {
+    const isAnnual = e.target.value === 'annual';
+    document.getElementById('sss-month-label').style.display = isAnnual ? 'none' : '';
+    document.getElementById('sss-month').style.display = isAnnual ? 'none' : '';
+  });
 
   document.getElementById('sss-gen').addEventListener('click', () => generateSSS(biz, setup, outputEl));
   return biz;
@@ -42,6 +70,8 @@ async function initSSSReport() {
 async function generateSSS(biz, setup, outputEl) {
   outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching payroll data…</span></div>`;
 
+  const periodType = document.getElementById('sss-period-type').value;
+  const isAnnual = periodType === 'annual';
   const month = parseInt(document.getElementById('sss-month').value, 10);
   const year  = parseInt(document.getElementById('sss-year').value, 10);
 
@@ -56,16 +86,17 @@ async function generateSSS(biz, setup, outputEl) {
 
     for (const [empKey, data] of Object.entries(byEmployee)) {
       const emp = employees[empKey];
-      const b = data.months[month] || {};
+      const buckets = isAnnual ? data.months : [data.months[month] || {}];
 
-      const sssEe  = b[PH_CAT.SSS_EE]  || 0;
-      const sssEr  = b[PH_CAT.SSS_ER]  || 0;
-      const phicEe = b[PH_CAT.PHIC_EE] || 0;
-      const phicEr = b[PH_CAT.PHIC_ER] || 0;
-      const hdmfEe = b[PH_CAT.HDMF_EE] || 0;
-      const hdmfEr = b[PH_CAT.HDMF_ER] || 0;
+      const sumCat = (cat) => buckets.reduce((a, b) => a + ((b || {})[cat] || 0), 0);
+      const sssEe  = sumCat(PH_CAT.SSS_EE);
+      const sssEr  = sumCat(PH_CAT.SSS_ER);
+      const phicEe = sumCat(PH_CAT.PHIC_EE);
+      const phicEr = sumCat(PH_CAT.PHIC_ER);
+      const hdmfEe = sumCat(PH_CAT.HDMF_EE);
+      const hdmfEr = sumCat(PH_CAT.HDMF_ER);
 
-      if (!sssEe && !sssEr && !phicEe && !phicEr && !hdmfEe && !hdmfEr) continue; // no contributions this month
+      if (!sssEe && !sssEr && !phicEe && !phicEr && !hdmfEe && !hdmfEr) continue; // no contributions in this period
 
       const name = emp
         ? ([emp.lastName, emp.firstName, emp.middleName].filter(Boolean).join(', ') || emp.name)
@@ -80,7 +111,9 @@ async function generateSSS(biz, setup, outputEl) {
 
     rows.sort((a, b) => a.name.localeCompare(b.name));
 
-    const period = { month, year, label: `${monthName(month)} ${year}` };
+    const period = isAnnual
+      ? { year, label: `${year} (Annual)` }
+      : { month, year, label: `${monthName(month)} ${year}` };
     renderSSS(outputEl, rows, totals, setup, period);
 
     ['sss-print','sss-pdf'].forEach(id => {
@@ -109,7 +142,7 @@ function renderSSS(el, rows, totals, setup, period) {
   el.innerHTML = `
     <div class="form-title">
       <h2>SSS / PhilHealth / Pag-IBIG Remittance</h2>
-      <div class="sub">For the Month of: ${escHtml(period.label)}</div>
+      <div class="sub">For: ${escHtml(period.label)}</div>
     </div>
 
     <div class="stats-row">
