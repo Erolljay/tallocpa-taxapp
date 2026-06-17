@@ -171,7 +171,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'nonindividual',
     phase: 3,
-    available: false,
+    available: true,
   },
   {
     id: 'a1b2c3d4-0006-4000-8000-000000000002',
@@ -180,7 +180,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'nonindividual',
     phase: 3,
-    available: false,
+    available: true,
   },
 
   // ── INCOME TAX – INDIVIDUAL ──────────────────────────────────
@@ -191,7 +191,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'individual',
     phase: 3,
-    available: false,
+    available: true,
   },
   {
     id: 'a1b2c3d4-0007-4000-8000-000000000002',
@@ -200,7 +200,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'individual',
     phase: 3,
-    available: false,
+    available: true,
   },
 ];
 
