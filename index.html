@@ -14,6 +14,7 @@
   <button type="button" class="tab active" data-view="welcome">Welcome</button>
   <button type="button" class="tab" data-view="reports">Reports</button>
   <button type="button" class="tab" data-view="setup">Tax codes</button>
+  <button type="button" class="tab" data-view="batch-import-setup">Setup</button>
   <button type="button" class="tab" data-view="business">Business</button>
   <button type="button" class="tab" data-view="customers">Customers</button>
   <button type="button" class="tab" data-view="suppliers">Suppliers</button>
@@ -62,6 +63,14 @@
     <span class="muted">Per-row buttons create one tax code at a time in the selected business.</span>
   </div>
   <div id="setupOutput"></div>
+</div>
+
+<!-- ── BATCH IMPORT SETUP ───────────────────────────────────── -->
+<div id="batch-import-setup-view" hidden>
+  <p class="muted">Install Batch Import buttons for the selected business. Once installed, each one appears
+  directly on that business's <strong>Sales Invoices</strong> or <strong>Purchase Invoices</strong> page,
+  letting the bookkeeper upload a simple Excel sheet that gets posted straight into Manager.</p>
+  <div id="batch-import-install-list"></div>
 </div>
 
 <!-- ── BUSINESS ─────────────────────────────────────────────── -->

@@ -65,7 +65,7 @@ const REPORTS = [
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 2,
-    available: true,
+    available: false,
   },
   {
     id: 'a1b2c3d4-0003-4000-8000-000000000002',
@@ -74,7 +74,7 @@ const REPORTS = [
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 2,
-    available: true,
+    available: false,
   },
   {
     id: 'e5f6a7b8-c9d0-4123-e456-f7a8b9c0d1e2',
@@ -83,12 +83,21 @@ const REPORTS = [
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 2,
-    available: true,
+    available: false,
+  },
+  {
+    id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
+    name: 'SAWT – Summary Alphalist of Withholding Taxes',
+    file: 'sawt.html',
+    group: 'Expanded Withholding Tax',
+    req: 'expanded',
+    phase: 2,
+    available: false,
   },
   {
     id: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4',
     name: 'BIR Form 2307 – Certificate of Creditable WT',
-    file: '2307.html',
+    file: 'tallo-2307.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 1,
@@ -123,16 +132,16 @@ const REPORTS = [
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: true,
+    available: false,
   },
   {
     id: 'b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5',
-    name: '1604-C – Alphalist of Employees',
-    file: 'alphalist.html',
+    name: 'BIR Form 2316 – Certificate of Compensation',
+    file: '2316.html',
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: true,
+    available: false,
   },
   {
     id: 'c9d0e1f2-a3b4-4567-c890-d1e2f3a4b5c6',
@@ -141,26 +150,7 @@ const REPORTS = [
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: true,
-  },
-
-  {
-    id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
-    name: 'SAWT – Summary Alphalist of Withholding Taxes',
-    file: 'sawt.html',
-    group: 'Income Tax',
-    req: 'individual',
-    phase: 3,
     available: false,
-  },
-  {
-    id: 'a1b2c3d4-0008-4000-8000-000000000001',
-    name: 'Tax Reconciliation Report',
-    file: 'tax-recon.html',
-    group: 'Income Tax',
-    req: 'all',
-    phase: 3,
-    available: true,
   },
 
   // ── INCOME TAX – CORPORATION ─────────────────────────────────
@@ -171,7 +161,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'nonindividual',
     phase: 3,
-    available: true,
+    available: false,
   },
   {
     id: 'a1b2c3d4-0006-4000-8000-000000000002',
@@ -180,7 +170,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'nonindividual',
     phase: 3,
-    available: true,
+    available: false,
   },
 
   // ── INCOME TAX – INDIVIDUAL ──────────────────────────────────
@@ -191,7 +181,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'individual',
     phase: 3,
-    available: true,
+    available: false,
   },
   {
     id: 'a1b2c3d4-0007-4000-8000-000000000002',
@@ -200,10 +190,28 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'individual',
     phase: 3,
-    available: true,
+    available: false,
   },
 ];
 
 function reportEndpoint(report) {
   return `${BASE_URL}/${report.file}`;
 }
+
+// Setup-tab installs: standalone tools placed onto specific Manager pages
+// (not the generic Reports tab). Placement maps to Manager's own page key.
+// DO NOT change the `id` GUIDs after first install — they are the stable extension keys.
+const BATCH_IMPORT_INSTALLS = [
+  {
+    id: '1a2b3c4d-5e6f-4789-9abc-d1e2f3a4b5c6',
+    name: 'Batch Import — Sales Invoices',
+    file: 'batch-import-sales.html',
+    placement: 'sales-invoices',
+  },
+  {
+    id: '2b3c4d5e-6f7a-4890-abcd-e1f2a3b4c5d6',
+    name: 'Batch Import — Purchase Invoices',
+    file: 'batch-import-purchase.html',
+    placement: 'purchase-invoices',
+  },
+];

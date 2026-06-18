@@ -65,6 +65,7 @@ function activateTab(view) {
   var biz = currentBiz();
   if (view === 'reports')       renderReportsTab(biz);
   if (view === 'setup' && !setupTabLoaded && biz) { setupTabLoaded = true; loadTaxCodesTab(); }
+  if (view === 'batch-import-setup') renderBatchImportSetupTab(biz);
   if (view === 'business')      lazyMountCF('business',     biz);
   if (view === 'customers')     lazyMountCF('customers',    biz);
   if (view === 'suppliers')     lazyMountCF('suppliers',    biz);
@@ -182,6 +183,72 @@ async function onReportAction(btn, biz) {
       await apiRequest('DELETE', '/api4/extension?business='+encodeURIComponent(biz)+'&key='+encodeURIComponent(btn.dataset.key));
     }
     await renderReportsTab(biz);
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = action === 'install' ? 'Install' : 'Uninstall';
+    alert('Failed: ' + err.message);
+  }
+}
+
+// ?? BATCH IMPORT SETUP TAB ???????????????????????????????????
+// Installs standalone tools onto specific Manager pages (Sales/Purchase
+// Invoices) rather than the generic Reports tab.
+var _biInstalled = [];
+
+async function renderBatchImportSetupTab(biz) {
+  var container = document.getElementById('batch-import-install-list');
+  if (!container) return;
+  if (!biz) {
+    container.innerHTML = '<p class="muted">Select a business above to see install status.</p>';
+    return;
+  }
+  container.innerHTML = '<div class="status">Loading...</div>';
+  try {
+    var res = await apiRequest('GET', '/api4/extension-batch?business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
+    _biInstalled = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
+  } catch(e) { _biInstalled = []; }
+  buildBatchImportInstallTable(biz, container);
+}
+
+function buildBatchImportInstallTable(biz, container) {
+  var html = '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
+  html += '<thead><tr style="font-size:11px;color:#9ca3af;"><th style="text-align:left;padding:5px 8px;font-weight:500;">Tool</th><th style="padding:5px 8px;font-weight:500;text-align:left;">Placement</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Status</th><th style="padding:5px 8px;font-weight:500;text-align:center;">Action</th></tr></thead><tbody>';
+
+  BATCH_IMPORT_INSTALLS.forEach(function(r) {
+    var ep = reportEndpoint(r);
+    var inst = _biInstalled.find(function(e){ return (e.value.Endpoint || e.value.endpoint) === ep; });
+    var badge, action;
+    if (inst) {
+      badge  = '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;">Installed</span>';
+      action = '<button class="secondary" data-action="uninstall" data-key="'+escHtml(inst.key)+'" style="font-size:11px;">Uninstall</button>';
+    } else {
+      badge  = '<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;">Not installed</span>';
+      action = '<button class="secondary" data-action="install" data-name="'+escHtml(r.name)+'" data-ep="'+escHtml(ep)+'" data-placement="'+escHtml(r.placement)+'" style="font-size:11px;">Install</button>';
+    }
+    html += '<tr style="border-bottom:.5px solid #f3f4f6;"><td style="padding:7px 8px;font-size:12px;font-weight:500;">'+escHtml(r.name)+'</td><td style="padding:7px 8px;font-size:11px;color:#6b7280;">'+escHtml(r.placement)+'</td><td style="padding:7px 8px;text-align:center;">'+badge+'</td><td style="padding:7px 8px;text-align:center;">'+action+'</td></tr>';
+  });
+  html += '</tbody></table>';
+
+  container.innerHTML = html;
+  container.querySelectorAll('button[data-action]').forEach(function(btn){
+    btn.addEventListener('click', function(){ onBatchImportAction(btn, biz); });
+  });
+}
+
+async function onBatchImportAction(btn, biz) {
+  var action = btn.dataset.action;
+  btn.disabled = true;
+  btn.textContent = action === 'install' ? 'Installing...' : 'Uninstalling...';
+  try {
+    if (action === 'install') {
+      await apiRequest('POST', '/api4/extension', {
+        business: biz,
+        value: { Name: btn.dataset.name, Source: 0, Endpoint: btn.dataset.ep, Placement: btn.dataset.placement }
+      });
+    } else {
+      await apiRequest('DELETE', '/api4/extension?business='+encodeURIComponent(biz)+'&key='+encodeURIComponent(btn.dataset.key));
+    }
+    await renderBatchImportSetupTab(biz);
   } catch(err) {
     btn.disabled = false;
     btn.textContent = action === 'install' ? 'Install' : 'Uninstall';
@@ -308,30 +375,16 @@ function getTaxType(group, name) {
   return 0; // output VAT, zero-rated sales, exempt sales
 }
 
-// Build the tax-code value payload for Manager.
-// managerRate === 100 -> "TotalRate" (no Rate; line amount IS the tax amount)
-// managerRate === 0   -> "ZeroRate"  (no Rate)
-// otherwise           -> "CustomRate" with an explicit Rate
-function buildTaxCodeValue(name, group, mgrRate) {
-  var taxType = getTaxType(group, name);
-  if (mgrRate === 100) {
-    return { Name: name, TaxRate: 'TotalRate', Type: 'SingleRate', Component: [{ TaxType: taxType }] };
-  }
-  if (mgrRate === 0) {
-    return { Name: name, TaxRate: 'ZeroRate', Type: 'SingleRate', Component: [{ TaxType: taxType }] };
-  }
-  return { Name: name, TaxRate: 'CustomRate', Type: 'SingleRate', Component: [{ TaxType: taxType, Rate: mgrRate }] };
-}
-
 async function onCreateTaxCode(btn, biz) {
   var name    = btn.dataset.name;
   var mgrRate = parseFloat(btn.dataset.mgrRate);
   var group   = btn.dataset.group || '';
+  var taxType = getTaxType(group, name);
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
     await apiRequest('POST', '/api4/tax-code', {
       business: biz,
-      value: buildTaxCodeValue(name, group, mgrRate)
+      value: { Name: name, Component: [{ TaxType: taxType, Rate: mgrRate }] }
     });
     await loadTaxCodesTab();
   } catch(err) {
@@ -355,9 +408,10 @@ async function onCreateGroupTaxCodes(btn, biz) {
   try {
     for (var i = 0; i < missing.length; i++) {
       var m = missing[i];
+      var taxType = getTaxType(m.group, m.Name);
       await apiRequest('POST', '/api4/tax-code', {
         business: biz,
-        value: buildTaxCodeValue(m.Name, m.group, m.managerRate)
+        value: { Name: m.Name, Component: [{ TaxType: taxType, Rate: m.managerRate }] }
       });
     }
     await loadTaxCodesTab();
