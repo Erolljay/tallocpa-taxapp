@@ -108,13 +108,15 @@ function handleFileChosen(e) {
 // ── LOOKUP CACHE (account/tax-code/contact name -> Manager key) ──
 async function buildLookupCache(biz) {
   if (_biCache && _biCache.biz === biz) return _biCache;
-  const [taxCodes, bsAccounts, plAccounts, parties] = await Promise.all([
+  const [taxCodes, bsAccounts, plAccounts, bankAccounts, cashAccounts, parties] = await Promise.all([
     fetchManagerTaxCodes(biz),
     fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/bank-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/cash-account-batch', biz).catch(() => []),
     fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
   ]);
-  const accounts = [...bsAccounts, ...plAccounts];
+  const accounts = [...bsAccounts, ...plAccounts, ...bankAccounts, ...cashAccounts];
   const keyMap = arr => {
     const m = new Map();
     arr.forEach(row => {
