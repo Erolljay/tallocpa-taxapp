@@ -15,46 +15,37 @@
 const BI_IS_SALE = (typeof BI_TXN_TYPE !== 'undefined' ? BI_TXN_TYPE : 'Sale') === 'Sale';
 const BI_PARTY_LABEL = BI_IS_SALE ? 'Customer' : 'Supplier';
 
-// Accounts used to post the Sales template's VAT-category and withholding
-// columns vary per client COA, so they're mapped (not hardcoded) per business —
-// see BI_ACCT_ROLES / the "Account mapping" panel rendered on the Sales page.
-const BI_ACCT_ROLES = [
-  { key: 'salesRevenue', label: 'Default Sales Revenue account',       guess: ['sales revenue', 'sales income', 'revenue', 'sales'] },
-  { key: 'cwt',           label: 'Creditable Withholding Tax account', guess: ['creditable withholding tax', 'withholding tax receivable', 'cwt'] },
-  { key: 'wv',            label: 'Withholding VAT account',            guess: ['withholding vat', 'vat withheld', 'wv'] },
-];
-
 // ── SIMPLE CLIENT TEMPLATE (what the client/bookkeeper fills in) ──
-// Sales invoices are always tax-inclusive: VATable/Exempt/Zero-Rated columns
-// hold the gross (tax-inclusive) amount per category; CWT/WV are withheld
-// amounts the customer deducted, recorded as negative lines.
-// Revenue Account is optional per row — clients with more than one sales
-// revenue account (e.g. by product line) can name the account to use;
-// left blank, it falls back to the "Default Sales Revenue account" mapping.
+// Both Sales and Purchase invoices are always tax-inclusive: VAT-category
+// columns hold the gross (tax-inclusive) amount per category; withholding
+// columns (CWT/WV for sales, Withholding Tax for purchases) are amounts
+// withheld, recorded as negative lines. Chart of accounts (and, for
+// purchases, ATC/withholding tax codes) vary per business, so the
+// downloaded template includes extra reference sheets (fetched live for
+// the selected business) to copy exact names from.
 const BI_HEADERS = BI_IS_SALE ? [
-  'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account (optional)',
+  'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
   'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
-  'CWT Amount', 'WV Amount',
+  'CWT Account', 'CWT Amount', 'WV Account', 'WV Amount',
   'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
 ] : [
-  'Date (YYYY-MM-DD)', 'Supplier Name', 'Reference', 'Amounts Include Tax (Yes/No)',
-  'Line1 Account', 'Line1 Amount', 'Line1 Tax Code',
-  'Line2 Account', 'Line2 Amount', 'Line2 Tax Code',
-  'Line3 Account', 'Line3 Amount', 'Line3 Tax Code',
-  'Line4 Account', 'Line4 Amount', 'Line4 Tax Code',
+  'Date (YYYY-MM-DD)', 'Supplier Name', 'Reference', 'Account',
+  'Input VAT 12% (Capital Goods)', 'Input VAT 12% (Other Goods)', 'Input VAT 12% (Services)',
+  'Zero-Rated Purchases', 'VAT Exempt Purchases',
+  'Withholding Tax Account', 'ATC Code', 'Withholding Tax Amount',
   'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
 ];
 
 const BI_SAMPLE_ROWS = BI_IS_SALE ? [
-  ['2026-06-18', '48 Coffee Co.', 'INV-1001', '',
+  ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
     5600, '', '',
-    '', '',
+    '', '', '', '',
     'Yes', 5600, '2026-06-18', 'Cash on Hand'],
 ] : [
-  ['2026-06-18', 'ABC Trading', 'BILL-2001', 'No',
-    'Office Supplies', 2000, 'Input VAT 12% (Other Goods)',
-    'Professional Fees', 1000, 'WI010 – Prof. fees ≤3M (5%)',
-    '', '', '', '', '', '',
+  ['2026-06-18', 'ABC Trading', 'BILL-2001', 'Professional Fees',
+    '', 2000, '',
+    '', '',
+    'Withholding Tax Payable', 'WI010 – Prof. fees ≤3M (5%)', 100,
     'No', '', '', ''],
 ];
 
@@ -73,8 +64,6 @@ async function initBatchImport() {
   document.getElementById('bi-file').addEventListener('change', handleFileChosen);
   document.getElementById('bi-validate').addEventListener('click', runValidation);
   document.getElementById('bi-post').addEventListener('click', postAllToManager);
-
-  if (BI_IS_SALE) renderAcctMapUI(await buildLookupCache(biz));
 }
 
 // ── XLSX LOADING (lazy, used only for the template & reading uploads) ──
@@ -87,11 +76,23 @@ function ensureXLSX(cb) {
 }
 
 function downloadTemplate() {
-  ensureXLSX(() => {
+  ensureXLSX(async () => {
+    const cache = await buildLookupCache(_biBiz);
     const data = [BI_HEADERS, ...BI_SAMPLE_ROWS];
     const ws = XLSX.utils.aoa_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Batch Import');
+
+    const coaRows = [['Account Title'], ...cache.accountList.map(a => [a.name]).sort((a, b) => a[0].localeCompare(b[0]))];
+    const coaWs = XLSX.utils.aoa_to_sheet(coaRows);
+    XLSX.utils.book_append_sheet(wb, coaWs, 'Chart of Accounts');
+
+    if (!BI_IS_SALE) {
+      const atcCodes = cache.taxCodes.filter(tc => /^W[ICVB]\d/.test(tc.name)).map(tc => [tc.name]).sort((a, b) => a[0].localeCompare(b[0]));
+      const atcWs = XLSX.utils.aoa_to_sheet([['ATC Code (Tax Code Name)'], ...atcCodes]);
+      XLSX.utils.book_append_sheet(wb, atcWs, 'ATC Codes');
+    }
+
     XLSX.writeFile(wb, `batch_import_${BI_IS_SALE ? 'sales' : 'purchase'}_template.xlsx`);
   });
 }
@@ -131,60 +132,13 @@ async function buildLookupCache(biz) {
   const taxCodeKeyByName = new Map(taxCodes.map(tc => [tc.name.trim().toLowerCase(), tc.key]));
   _biCache = {
     biz,
+    taxCodes,
     taxCodeKeyByName,
     accountKeyByName: keyMap(accounts),
     accountList,
     partyKeyByName: keyMap(parties),
-    acctMap: BI_IS_SALE ? loadAcctMap(biz, accountList) : null,
   };
   return _biCache;
-}
-
-// ── ACCOUNT ROLE MAPPING (Sales Revenue / CWT / WV — varies per client COA) ──
-function biAcctMapStorageKey(biz) { return `bi_acct_map_${biz}`; }
-
-function guessAcctMap(accountList) {
-  const map = {};
-  for (const role of BI_ACCT_ROLES) {
-    const hit = accountList.find(a => role.guess.some(g => a.name.toLowerCase().includes(g)));
-    if (hit) map[role.key] = hit.key;
-  }
-  return map;
-}
-
-function loadAcctMap(biz, accountList) {
-  const guessed = guessAcctMap(accountList);
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(biAcctMapStorageKey(biz))) || {}; } catch {}
-  return { ...guessed, ...saved };
-}
-
-function saveAcctMap(biz, acctMap) {
-  localStorage.setItem(biAcctMapStorageKey(biz), JSON.stringify(acctMap));
-}
-
-function renderAcctMapUI(cache) {
-  const container = document.getElementById('bi-acct-map');
-  if (!container || !BI_IS_SALE) return;
-  container.innerHTML = `
-    <div class="alert alert-info" style="margin-bottom:14px;">
-      <strong>Account mapping</strong> — pick which accounts in this business's chart of accounts the Sales template should post to. Auto-guessed where possible; change any that don't match.
-      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px;">
-        ${BI_ACCT_ROLES.map(role => `
-          <label style="font-size:12px;">${role.label}
-            <select data-role="${role.key}" class="bi-acct-select">
-              <option value="">— Select account —</option>
-              ${cache.accountList.map(a => `<option value="${a.key}" ${cache.acctMap[role.key] === a.key ? 'selected' : ''}>${escHtml(a.name)}</option>`).join('')}
-            </select>
-          </label>`).join('')}
-      </div>
-    </div>`;
-  container.querySelectorAll('.bi-acct-select').forEach(sel => {
-    sel.addEventListener('change', () => {
-      cache.acctMap[sel.dataset.role] = sel.value || null;
-      saveAcctMap(cache.biz, cache.acctMap);
-    });
-  });
 }
 
 // ── PARSE + VALIDATE ─────────────────────────────────────────
@@ -200,7 +154,6 @@ async function runValidation() {
 
     document.getElementById('bi-output').innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Checking against Manager accounts, tax codes &amp; contacts…</span></div>`;
     const cache = await buildLookupCache(_biBiz);
-    renderAcctMapUI(cache);
 
     _biRows = dataRows.map((r, idx) => parseRow(r, idx, cache));
     renderPreview();
@@ -213,7 +166,7 @@ function parseRow(r, idx, cache) {
 
 function checkAccount(errors, label, acctName, cache) {
   if (cache.accountKeyByName.size && !cache.accountKeyByName.has(acctName.trim().toLowerCase())) {
-    errors.push(`${label} account "${acctName}" not found in Manager — create it in the chart of accounts first`);
+    errors.push(`${label} account "${acctName}" not found in Manager — check spelling against the Chart of Accounts sheet`);
   }
 }
 
@@ -229,39 +182,35 @@ function parseSaleRow(r, idx, cache) {
     reference: get(2),
     amountsIncludeTax: true,
     lines: [],
-    paid: /^y/i.test(get(9)),
-    paidAmount: parseFloat(get(10)) || 0,
-    paidDate: get(11),
-    paymentAccount: get(12),
+    paid: /^y/i.test(get(11)),
+    paidAmount: parseFloat(get(12)) || 0,
+    paidDate: get(13),
+    paymentAccount: get(14),
   };
 
   const revenueAcctName = get(3);
   const vatable    = num(4);
   const exempt     = num(5);
   const zeroRated  = num(6);
-  const cwt        = num(7);
-  const wv         = num(8);
+  const cwtAcctName = get(7);
+  const cwt        = num(8);
+  const wvAcctName  = get(9);
+  const wv         = num(10);
 
-  const checkRole = (role, label) => {
-    const key = cache.acctMap[role];
-    if (!key) errors.push(`${label} account not mapped — pick one in the Account mapping panel above`);
-    return key;
+  const resolveAcct = (name, label) => {
+    if (!name) { errors.push(`${label} account is blank — copy an Account Title from the Chart of Accounts sheet`); return null; }
+    const key = cache.accountKeyByName.get(name.trim().toLowerCase());
+    if (!key) errors.push(`${label} account "${name}" not found in Manager — check spelling against the Chart of Accounts sheet`);
+    return key || null;
   };
 
-  let revenueAcctKey = null, revenueAcctLabel = 'Sales Revenue';
-  if (revenueAcctName) {
-    revenueAcctKey = cache.accountKeyByName.get(revenueAcctName.trim().toLowerCase()) || null;
-    revenueAcctLabel = revenueAcctName;
-    if (!revenueAcctKey) errors.push(`Revenue Account "${revenueAcctName}" not found in Manager`);
-  } else if (vatable > 0 || exempt > 0 || zeroRated > 0) {
-    revenueAcctKey = checkRole('salesRevenue', 'Sales Revenue');
-  }
+  const revenueAcctKey = (vatable > 0 || exempt > 0 || zeroRated > 0) ? resolveAcct(revenueAcctName, 'Revenue') : null;
 
-  if (vatable > 0)   row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctLabel, amount: vatable, tcName: 'Output VAT 12%' });
-  if (exempt > 0)    row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctLabel, amount: exempt, tcName: 'VAT Exempt Sales' });
-  if (zeroRated > 0) row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctLabel, amount: zeroRated, tcName: 'Zero-Rated Sales' });
-  if (cwt > 0)       row.lines.push({ acctKey: checkRole('cwt', 'Creditable Withholding Tax'), acctName: 'CWT', amount: -cwt, tcName: null });
-  if (wv > 0)        row.lines.push({ acctKey: checkRole('wv', 'Withholding VAT'), acctName: 'WV', amount: -wv, tcName: null });
+  if (vatable > 0)   row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: vatable, tcName: 'Output VAT 12%' });
+  if (exempt > 0)    row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: exempt, tcName: 'VAT Exempt Sales' });
+  if (zeroRated > 0) row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: zeroRated, tcName: 'Zero-Rated Sales' });
+  if (cwt > 0)       row.lines.push({ acctKey: resolveAcct(cwtAcctName, 'CWT'), acctName: cwtAcctName || 'CWT', amount: -cwt, tcName: null });
+  if (wv > 0)        row.lines.push({ acctKey: resolveAcct(wvAcctName, 'WV'), acctName: wvAcctName || 'WV', amount: -wv, tcName: null });
 
   ['Output VAT 12%', 'VAT Exempt Sales', 'Zero-Rated Sales'].forEach(tc => {
     if (row.lines.some(l => l.tcName === tc) && !cache.taxCodeKeyByName.has(tc.toLowerCase())) {
@@ -291,37 +240,67 @@ function parseSaleRow(r, idx, cache) {
 function parsePurchaseRow(r, idx, cache) {
   const errors = [];
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
+  const num = i => parseFloat(get(i)) || 0;
 
   const row = {
     rowNum: idx + 2,
     date: get(0),
     partyName: get(1),
     reference: get(2),
-    amountsIncludeTax: /^y/i.test(get(3)),
+    amountsIncludeTax: true,
     lines: [],
-    paid: /^y/i.test(get(16)),
-    paidAmount: parseFloat(get(17)) || 0,
-    paidDate: get(18),
-    paymentAccount: get(19),
+    paid: /^y/i.test(get(12)),
+    paidAmount: parseFloat(get(13)) || 0,
+    paidDate: get(14),
+    paymentAccount: get(15),
   };
 
-  for (let i = 0; i < 4; i++) {
-    const base = 4 + i * 3;
-    const acctName = get(base);
-    const amtStr   = get(base + 1);
-    const tcName   = get(base + 2);
-    if (!acctName && !amtStr && !tcName) continue;
-    const amount = parseFloat(amtStr);
-    if (!acctName) errors.push(`Line ${i+1}: account name is blank`);
-    else checkAccount(errors, `Line ${i+1}`, acctName, cache);
-    if (!amtStr || isNaN(amount)) errors.push(`Line ${i+1}: amount is missing/invalid`);
-    if (tcName && !cache.taxCodeKeyByName.has(tcName.trim().toLowerCase())) errors.push(`Line ${i+1}: tax code "${tcName}" not found in Manager — check spelling against the Tax Codes tab`);
-    row.lines.push({ acctName, amount, tcName });
+  const acctName    = get(3);
+  const capGoods    = num(4);
+  const otherGoods  = num(5);
+  const services    = num(6);
+  const zeroRated   = num(7);
+  const exempt      = num(8);
+  const whtAcctName = get(9);
+  const atcCode     = get(10);
+  const whtAmount   = num(11);
+
+  const resolveAcct = (name, label) => {
+    if (!name) { errors.push(`${label} account is blank — copy an Account Title from the Chart of Accounts sheet`); return null; }
+    const key = cache.accountKeyByName.get(name.trim().toLowerCase());
+    if (!key) errors.push(`${label} account "${name}" not found in Manager — check spelling against the Chart of Accounts sheet`);
+    return key || null;
+  };
+
+  const hasCategoryAmount = capGoods > 0 || otherGoods > 0 || services > 0 || zeroRated > 0 || exempt > 0;
+  const acctKey = hasCategoryAmount ? resolveAcct(acctName, 'Account') : null;
+
+  if (capGoods > 0)   row.lines.push({ acctKey, acctName: acctName || 'Account', amount: capGoods,   tcName: 'Input VAT 12% (Capital Goods)' });
+  if (otherGoods > 0) row.lines.push({ acctKey, acctName: acctName || 'Account', amount: otherGoods, tcName: 'Input VAT 12% (Other Goods)' });
+  if (services > 0)   row.lines.push({ acctKey, acctName: acctName || 'Account', amount: services,   tcName: 'Input VAT 12% (Services)' });
+  if (zeroRated > 0)  row.lines.push({ acctKey, acctName: acctName || 'Account', amount: zeroRated,  tcName: 'Zero-Rated Purchases' });
+  if (exempt > 0)     row.lines.push({ acctKey, acctName: acctName || 'Account', amount: exempt,     tcName: 'VAT Exempt Purchases' });
+
+  ['Input VAT 12% (Capital Goods)', 'Input VAT 12% (Other Goods)', 'Input VAT 12% (Services)', 'Zero-Rated Purchases', 'VAT Exempt Purchases'].forEach(tc => {
+    if (row.lines.some(l => l.tcName === tc) && !cache.taxCodeKeyByName.has(tc.toLowerCase())) {
+      errors.push(`Tax code "${tc}" not found in Manager — install standard tax codes from the Tax Codes tab`);
+    }
+  });
+
+  if (whtAmount > 0) {
+    const whtAcctKey = resolveAcct(whtAcctName, 'Withholding Tax');
+    let atcKey = null;
+    if (!atcCode) errors.push(`ATC Code is blank — copy one from the ATC Codes sheet`);
+    else {
+      atcKey = cache.taxCodeKeyByName.get(atcCode.trim().toLowerCase()) || null;
+      if (!atcKey) errors.push(`ATC Code "${atcCode}" not found in Manager — check spelling against the ATC Codes sheet`);
+    }
+    row.lines.push({ acctKey: whtAcctKey, acctName: whtAcctName || 'Withholding Tax', amount: -whtAmount, tcName: atcCode, tcKey: atcKey });
   }
 
   if (!row.date || isNaN(new Date(row.date).getTime())) errors.push(`Date is missing/invalid`);
   if (!row.partyName) errors.push(`${BI_PARTY_LABEL} name is blank`);
-  if (row.lines.length === 0) errors.push(`No line items found`);
+  if (!hasCategoryAmount) errors.push(`No purchase amount entered (Capital Goods / Other Goods / Services / Zero-Rated / Exempt)`);
 
   row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
 
@@ -401,7 +380,7 @@ async function postInvoiceRow(row, cache) {
     const line = {
       account: l.acctKey || cache.accountKeyByName.get(l.acctName.trim().toLowerCase()) || null,
       qty: 1,
-      taxCode: l.tcName ? (cache.taxCodeKeyByName.get(l.tcName.trim().toLowerCase()) || null) : null,
+      taxCode: l.tcKey !== undefined ? l.tcKey : (l.tcName ? (cache.taxCodeKeyByName.get(l.tcName.trim().toLowerCase()) || null) : null),
     };
     line[BI_IS_SALE ? 'salesUnitPrice' : 'purchaseUnitPrice'] = l.amount;
     return line;
