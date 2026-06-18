@@ -19,7 +19,7 @@ const BI_PARTY_LABEL = BI_IS_SALE ? 'Customer' : 'Supplier';
 // columns vary per client COA, so they're mapped (not hardcoded) per business —
 // see BI_ACCT_ROLES / the "Account mapping" panel rendered on the Sales page.
 const BI_ACCT_ROLES = [
-  { key: 'salesRevenue', label: 'Sales Revenue account',              guess: ['sales revenue', 'sales income', 'revenue', 'sales'] },
+  { key: 'salesRevenue', label: 'Default Sales Revenue account',       guess: ['sales revenue', 'sales income', 'revenue', 'sales'] },
   { key: 'cwt',           label: 'Creditable Withholding Tax account', guess: ['creditable withholding tax', 'withholding tax receivable', 'cwt'] },
   { key: 'wv',            label: 'Withholding VAT account',            guess: ['withholding vat', 'vat withheld', 'wv'] },
 ];
@@ -28,8 +28,11 @@ const BI_ACCT_ROLES = [
 // Sales invoices are always tax-inclusive: VATable/Exempt/Zero-Rated columns
 // hold the gross (tax-inclusive) amount per category; CWT/WV are withheld
 // amounts the customer deducted, recorded as negative lines.
+// Revenue Account is optional per row — clients with more than one sales
+// revenue account (e.g. by product line) can name the account to use;
+// left blank, it falls back to the "Default Sales Revenue account" mapping.
 const BI_HEADERS = BI_IS_SALE ? [
-  'Date (YYYY-MM-DD)', 'Customer Name', 'Reference',
+  'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account (optional)',
   'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
   'CWT Amount', 'WV Amount',
   'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
@@ -43,7 +46,7 @@ const BI_HEADERS = BI_IS_SALE ? [
 ];
 
 const BI_SAMPLE_ROWS = BI_IS_SALE ? [
-  ['2026-06-18', '48 Coffee Co.', 'INV-1001',
+  ['2026-06-18', '48 Coffee Co.', 'INV-1001', '',
     5600, '', '',
     '', '',
     'Yes', 5600, '2026-06-18', 'Cash on Hand'],
@@ -104,11 +107,13 @@ function handleFileChosen(e) {
 // ── LOOKUP CACHE (account/tax-code/contact name -> Manager key) ──
 async function buildLookupCache(biz) {
   if (_biCache && _biCache.biz === biz) return _biCache;
-  const [taxCodes, accounts, parties] = await Promise.all([
+  const [taxCodes, bsAccounts, plAccounts, parties] = await Promise.all([
     fetchManagerTaxCodes(biz),
-    fetchAllBatch('/api4/account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
     fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
   ]);
+  const accounts = [...bsAccounts, ...plAccounts];
   const keyMap = arr => {
     const m = new Map();
     arr.forEach(row => {
@@ -224,17 +229,18 @@ function parseSaleRow(r, idx, cache) {
     reference: get(2),
     amountsIncludeTax: true,
     lines: [],
-    paid: /^y/i.test(get(8)),
-    paidAmount: parseFloat(get(9)) || 0,
-    paidDate: get(10),
-    paymentAccount: get(11),
+    paid: /^y/i.test(get(9)),
+    paidAmount: parseFloat(get(10)) || 0,
+    paidDate: get(11),
+    paymentAccount: get(12),
   };
 
-  const vatable    = num(3);
-  const exempt     = num(4);
-  const zeroRated  = num(5);
-  const cwt        = num(6);
-  const wv         = num(7);
+  const revenueAcctName = get(3);
+  const vatable    = num(4);
+  const exempt     = num(5);
+  const zeroRated  = num(6);
+  const cwt        = num(7);
+  const wv         = num(8);
 
   const checkRole = (role, label) => {
     const key = cache.acctMap[role];
@@ -242,9 +248,18 @@ function parseSaleRow(r, idx, cache) {
     return key;
   };
 
-  if (vatable > 0)   row.lines.push({ acctKey: checkRole('salesRevenue', 'Sales Revenue'), acctName: 'Sales Revenue', amount: vatable, tcName: 'Output VAT 12%' });
-  if (exempt > 0)    row.lines.push({ acctKey: checkRole('salesRevenue', 'Sales Revenue'), acctName: 'Sales Revenue', amount: exempt, tcName: 'VAT Exempt Sales' });
-  if (zeroRated > 0) row.lines.push({ acctKey: checkRole('salesRevenue', 'Sales Revenue'), acctName: 'Sales Revenue', amount: zeroRated, tcName: 'Zero-Rated Sales' });
+  let revenueAcctKey = null, revenueAcctLabel = 'Sales Revenue';
+  if (revenueAcctName) {
+    revenueAcctKey = cache.accountKeyByName.get(revenueAcctName.trim().toLowerCase()) || null;
+    revenueAcctLabel = revenueAcctName;
+    if (!revenueAcctKey) errors.push(`Revenue Account "${revenueAcctName}" not found in Manager`);
+  } else if (vatable > 0 || exempt > 0 || zeroRated > 0) {
+    revenueAcctKey = checkRole('salesRevenue', 'Sales Revenue');
+  }
+
+  if (vatable > 0)   row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctLabel, amount: vatable, tcName: 'Output VAT 12%' });
+  if (exempt > 0)    row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctLabel, amount: exempt, tcName: 'VAT Exempt Sales' });
+  if (zeroRated > 0) row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctLabel, amount: zeroRated, tcName: 'Zero-Rated Sales' });
   if (cwt > 0)       row.lines.push({ acctKey: checkRole('cwt', 'Creditable Withholding Tax'), acctName: 'CWT', amount: -cwt, tcName: null });
   if (wv > 0)        row.lines.push({ acctKey: checkRole('wv', 'Withholding VAT'), acctName: 'WV', amount: -wv, tcName: null });
 
