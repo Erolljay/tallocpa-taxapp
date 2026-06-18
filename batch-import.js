@@ -131,13 +131,16 @@ async function buildLookupCache(biz) {
     return { name: (d.name || d.Name || '').trim(), key: row?.key || row?.Key || d.key || '' };
   }).filter(a => a.name && a.key);
   const taxCodeKeyByName = new Map(taxCodes.map(tc => [tc.name.trim().toLowerCase(), tc.key]));
+  const accountKeyByName = keyMap(accounts);
   _biCache = {
     biz,
     taxCodes,
     taxCodeKeyByName,
-    accountKeyByName: keyMap(accounts),
+    accountKeyByName,
     accountList,
     partyKeyByName: keyMap(parties),
+    apAccountKey: accountKeyByName.get('accounts payable') || null,
+    arAccountKey: accountKeyByName.get('accounts receivable') || null,
   };
   return _biCache;
 }
@@ -368,7 +371,11 @@ async function ensureParty(name, cache) {
   const key = crypto.randomUUID();
   await apiRequest('PUT', BI_IS_SALE ? '/api4/customer' : '/api4/supplier', {
     key,
-    value: { name: name.trim(), inactive: false },
+    value: {
+      name: name.trim(),
+      inactive: false,
+      controlAccount: BI_IS_SALE ? cache.arAccountKey : cache.apAccountKey,
+    },
   });
   cache.partyKeyByName.set(lname, key);
   return key;
@@ -411,6 +418,7 @@ async function postInvoiceRow(row, cache) {
           paidBy: 1,
           customer: partyKey,
           lines: [{
+            account: cache.arAccountKey,
             accountsReceivableCustomer: partyKey,
             accountsReceivableSalesInvoice: invoiceKey,
             amount: row.paidAmount,
@@ -427,6 +435,7 @@ async function postInvoiceRow(row, cache) {
           payee: 2,
           supplier: partyKey,
           lines: [{
+            account: cache.apAccountKey,
             accountsPayableSupplier: partyKey,
             purchaseInvoice: invoiceKey,
             amount: row.paidAmount,
