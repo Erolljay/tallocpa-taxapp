@@ -408,7 +408,7 @@ async function postInvoiceRow(row, cache) {
           date: row.paidDate,
           reference: row.reference || null,
           receivedIn: paymentAcctKey,
-          paidBy: 'Customer',
+          paidBy: 1,
           customer: partyKey,
           lines: [{
             accountsReceivableCustomer: partyKey,
@@ -424,7 +424,7 @@ async function postInvoiceRow(row, cache) {
           date: row.paidDate,
           reference: row.reference || null,
           paidFrom: paymentAcctKey,
-          payee: 'Supplier',
+          payee: 2,
           supplier: partyKey,
           lines: [{
             accountsPayableSupplier: partyKey,
