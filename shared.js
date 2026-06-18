@@ -32,12 +32,12 @@ async function apiRequest(method, path, body = null) {
 }
 
 // ── FETCH ALL BATCH (50/page) ────────────────────────────────
-async function fetchAllBatch(batchPath, businessName) {
+async function fetchAllBatch(batchPath, businessName, extraParams) {
   const all = [];
   let skip = 0;
   const PAGE = 50;
   while (true) {
-    const qs = new URLSearchParams({ business: businessName, Skip: String(skip), PageSize: String(PAGE) }).toString();
+    const qs = new URLSearchParams({ business: businessName, Skip: String(skip), PageSize: String(PAGE), ...(extraParams || {}) }).toString();
     const res = await apiRequest('GET', `${batchPath}?${qs}`);
     const items = res?.items || [];
     all.push(...items);
@@ -95,30 +95,14 @@ function getPageContextBusiness() {
 
 async function getReportBusiness(containerEl) {
   const ctxBiz = await getPageContextBusiness();
+  if (ctxBiz) {
+    App.currentBusiness = ctxBiz;
+    return ctxBiz;
+  }
 
   const res = await apiRequest('GET', '/api4/businesses');
   const businesses = res?.businesses || [];
   if (!businesses.length) throw new Error('No businesses found in Manager.');
-
-  // ctxBiz from the page URL may be a numeric index rather than the business name.
-  // Resolve it to the actual name.
-  if (ctxBiz) {
-    const byName = businesses.find(b => b.name === ctxBiz);
-    if (byName) {
-      App.currentBusiness = byName.name;
-      return byName.name;
-    }
-    const idx = parseInt(ctxBiz, 10);
-    if (!isNaN(idx)) {
-      // Manager uses 1-based or 0-based index depending on version — try both.
-      const byIdx = businesses[idx] || businesses[idx - 1];
-      if (byIdx) {
-        App.currentBusiness = byIdx.name;
-        return byIdx.name;
-      }
-    }
-  }
-
   if (businesses.length === 1) {
     App.currentBusiness = businesses[0].name;
     return businesses[0].name;
@@ -143,46 +127,17 @@ async function getReportBusiness(containerEl) {
 
 // ── MANAGER MAPPING GUIDS ────────────────────────────────────
 const MAPPING_GUIDS = {
-  vatMapping:     'b1r00099-0000-4000-a000-000000000001',
-  ewtMapping:     'b1r00099-0000-4000-a000-000000000002',
-  fwtMapping:     'b1r00099-0000-4000-a000-000000000003',
-  ptMapping:      'b1r00099-0000-4000-a000-000000000004',
-  payrollMapping: 'b1r00099-0000-4000-a000-000000000005',
+  vatMapping: 'b1r00099-0000-4000-a000-000000000001',
+  ewtMapping: 'b1r00099-0000-4000-a000-000000000002',
+  fwtMapping: 'b1r00099-0000-4000-a000-000000000003',
+  ptMapping:  'b1r00099-0000-4000-a000-000000000004',
 };
-
-// Read/save payroll category mapping { itemKey -> birCategoryId }
-// Reads ALL customFields2 strings and collects entries whose values start with
-// 'ph-bir-' — this catches data saved under any GUID from any session.
-async function getPayrollMapping(biz) {
-  const bizRec = await getOrCreateBizDataRecord(biz);
-  const strings = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
-  const merged = {};
-  for (const raw of Object.values(strings)) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === 'string' && v.startsWith('ph-bir-')) merged[k] = v;
-        }
-      }
-    } catch { /* skip non-JSON or invalid entries */ }
-  }
-  return merged;
-}
-
-async function savePayrollMapping(biz, mapping) {
-  const guids = await ensureBIRFields(biz);
-  const targetGuid = guids && guids.mapping;
-  if (!targetGuid) throw new Error('BIR Mapping Data custom field not available');
-  return saveBizDataRecord(biz, targetGuid, mapping);
-}
 
 // ── BIR CUSTOM FIELD DEFINITIONS ─────────────────────────────
 const BIR_CF_NAMES = {
-  biz:     'BIR Business Data',
-  party:   'BIR Party Data',
-  emp:     'BIR Employee Data',
-  mapping: 'BIR Mapping Data',
+  biz:   'BIR Business Data',
+  party: 'BIR Party Data',
+  emp:   'BIR Employee Data',
 };
 
 // Known Manager custom-field placement GUIDs (confirmed via API).
@@ -216,31 +171,24 @@ async function ensureBIRFields(biz) {
     });
     return it ? (it.key || it.Key) : null;
   };
-  // Collect ALL GUIDs for 'BIR Mapping Data' — previous sessions may have created duplicates.
-  const findAllGuids = name => items
-    .filter(i => { const it2 = i.item || i.value || i; return (it2.name || it2.Name) === name; })
-    .map(i => i.key || i.Key)
-    .filter(Boolean);
 
   const guids = {
-    biz:         findGuid(BIR_CF_NAMES.biz),
-    party:       findGuid(BIR_CF_NAMES.party),
-    emp:         findGuid(BIR_CF_NAMES.emp),
-    mapping:     findGuid(BIR_CF_NAMES.mapping),
-    allMappings: findAllGuids(BIR_CF_NAMES.mapping),
+    biz:   findGuid(BIR_CF_NAMES.biz),
+    party: findGuid(BIR_CF_NAMES.party),
+    emp:   findGuid(BIR_CF_NAMES.emp),
   };
 
   // Create any missing definitions
   const defs = [
-    { slot: 'biz',     name: BIR_CF_NAMES.biz,     placement: BIR_PLACEMENTS.biz.map(p => p.Key)   },
-    { slot: 'party',   name: BIR_CF_NAMES.party,   placement: BIR_PLACEMENTS.party.map(p => p.Key) },
-    { slot: 'emp',     name: BIR_CF_NAMES.emp,     placement: BIR_PLACEMENTS.emp.map(p => p.Key)   },
-    { slot: 'mapping', name: BIR_CF_NAMES.mapping, placement: BIR_PLACEMENTS.party.map(p => p.Key) },
+    { slot: 'biz',   name: BIR_CF_NAMES.biz,  placement: BIR_PLACEMENTS.biz.map(p => p.Key)   },
+    { slot: 'party', name: BIR_CF_NAMES.party, placement: BIR_PLACEMENTS.party.map(p => p.Key) },
+    { slot: 'emp',   name: BIR_CF_NAMES.emp,  placement: BIR_PLACEMENTS.emp.map(p => p.Key)   },
   ];
   for (const def of defs) {
     if (guids[def.slot]) continue;
     try {
       const created = await apiRequest('POST', '/api4/text-custom-field', {
+        business: biz,
         value: { name: def.name, lockedForManualEditing: true, placement: def.placement },
       });
       if (created) {
@@ -263,7 +211,6 @@ async function ensureBIRFields(biz) {
   // customer and supplier share the same 'BIR Party Data' definition
   guids.customer = guids.party;
   guids.supplier = guids.party;
-  // mapping slot is placed on customer (same placements as party)
 
   _birGuidCache[biz] = guids;
   return guids;
@@ -327,11 +274,7 @@ async function getOrCreateBizDataRecord(biz) {
     const v = it.item || {};
     return (v.name || v.Name) === BIZ_DATA_RECORD_NAME;
   });
-  if (found) {
-    // Batch responses may omit customFields2 — fetch the full record by key.
-    const full = await apiRequest('GET', `/api4/customer?business=${encodeURIComponent(biz)}&key=${encodeURIComponent(found.key)}`);
-    return { key: found.key, value: full || found.item || {} };
-  }
+  if (found) return { key: found.key, value: found.item || {} };
 
   const created = await apiRequest('POST', '/api4/customer', {
     business: biz,
@@ -343,27 +286,36 @@ async function getOrCreateBizDataRecord(biz) {
   });
   const key = (created && (created.key || created.Key)) || (typeof created === 'string' ? created : null);
   if (!key) throw new Error('Could not create business data record');
-  // Fetch the newly-created record so we have the full Manager schema for future PUTs.
-  const fetched = await apiRequest('GET', `/api4/customer?business=${encodeURIComponent(biz)}&key=${encodeURIComponent(key)}`);
-  return { key, value: fetched || { name: BIZ_DATA_RECORD_NAME, inactive: false, customFields2: { strings: {} } } };
+  return { key, value: { name: BIZ_DATA_RECORD_NAME, inactive: false, customFields2: { strings: {} } } };
 }
 
 // Save the business-level BIR blob into the dummy customer record's customFields2.strings.
 async function saveBizDataRecord(biz, guid, birBlob) {
   const { key, value } = await getOrCreateBizDataRecord(biz);
   const managerCF2 = buildBIRCustomFields(value, guid, birBlob);
-  // Mirror back exactly what Manager gave us, only overriding customFields2.
-  // Building a field whitelist causes 400s when Manager's schema changes or
-  // when required fields differ between versions.
-  const putValue = Object.assign({}, ...Object.keys(value)
-    .filter(k => k !== 'timestamp' && k !== 'id' && k !== 'key')
-    .map(k => ({ [k]: value[k] })), { customFields2: managerCF2 });
-  try {
-    await apiRequest('PUT', '/api4/customer', { business: biz, key, value: putValue });
-  } catch (err) {
-    console.error('[saveBizDataRecord] PUT failed. key=%s body=%o err=%s', key, putValue, err.message);
-    throw err;
-  }
+  const putValue = {
+    name:            value.name            !== undefined ? value.name            : BIZ_DATA_RECORD_NAME,
+    code:            value.code            !== undefined ? value.code            : null,
+    creditLimit:     value.creditLimit     !== undefined ? value.creditLimit     : 0,
+    currency:        value.currency        !== undefined ? value.currency        : null,
+    billingAddress:  value.billingAddress  !== undefined ? value.billingAddress  : null,
+    deliveryAddress: value.deliveryAddress !== undefined ? value.deliveryAddress : null,
+    email:           value.email           !== undefined ? value.email           : null,
+    division:        value.division        !== undefined ? value.division        : null,
+    controlAccount:  value.controlAccount  !== undefined ? value.controlAccount  : null,
+    hasDefaultDueDateDays: value.hasDefaultDueDateDays || false,
+    defaultDueDateDays:    value.defaultDueDateDays    !== undefined ? value.defaultDueDateDays : null,
+    hasDefaultHourlyRate:  value.hasDefaultHourlyRate  || false,
+    defaultHourlyRate:     value.defaultHourlyRate     !== undefined ? value.defaultHourlyRate  : 0,
+    inactive:              false,
+    customFields:          value.customFields          !== undefined ? value.customFields : null,
+    customFields2:         managerCF2,
+    hasDefaultBillingAddress:  value.hasDefaultBillingAddress  || false,
+    defaultBillingAddress:     value.defaultBillingAddress     !== undefined ? value.defaultBillingAddress  : null,
+    hasDefaultDeliveryAddress: value.hasDefaultDeliveryAddress || false,
+    defaultDeliveryAddress:    value.defaultDeliveryAddress    !== undefined ? value.defaultDeliveryAddress : null,
+  };
+  await apiRequest('PUT', '/api4/customer', { business: biz, key, value: putValue });
   return managerCF2;
 }
 
@@ -485,136 +437,6 @@ async function loadPartyBIR(biz, partyType) {
   }
 }
 
-// ── VAT MAPPING (auto-match Manager tax codes by standard name) ─
-// Shared with 2550Q so SLS/SLP use the exact same tax-code keys.
-const VAT_CATEGORY_TC_NAME = {
-  sales_taxable:   'Output VAT 12%',
-  sales_zero:      'Zero-Rated Sales',
-  sales_exempt:    'VAT Exempt Sales',
-  purch_capital:   'Input VAT 12% (Capital Goods)',
-  purch_other:     'Input VAT 12% (Other Goods)',
-  purch_services:  'Input VAT 12% (Services)',
-  purch_zero:      'Zero-Rated Purchases',
-  purch_exempt:    'VAT Exempt Purchases',
-  govt_wv012:      'WV012 – Govt WHT VAT Goods (5%)',
-  govt_wv022:      'WV022 – Govt WHT VAT Services (5%)',
-};
-
-async function fetchManagerTaxCodes(biz) {
-  const items = await fetchAllBatch('/api4/tax-code-batch', biz);
-  return items.map(row => {
-    const data = row?.item || row?.value || row || {};
-    const name = data.Name || data.name || data.Code || data.code || '';
-    const rate = Number(data.rate ?? (Array.isArray(data.rates) ? data.rates[0] : 0)) || 0;
-    return { key: row?.key || row?.Key || data.key || '', name: name || `(unnamed: ${row?.key || ''})`, rate };
-  });
-}
-
-function autoMatchVatMapping(taxCodes) {
-  const nameToKey = {};
-  for (const tc of taxCodes) {
-    const n = (tc.name || '').toLowerCase().trim();
-    if (n) nameToKey[n] = tc.key;
-  }
-  const vm = {};
-  for (const [catKey, tcName] of Object.entries(VAT_CATEGORY_TC_NAME)) {
-    const k = nameToKey[tcName.toLowerCase().trim()];
-    if (k) vm[catKey] = k;
-  }
-  return vm;
-}
-
-function overridesStorageKey(biz) { return `2550q_taxcode_overrides_${biz}`; }
-
-function getMappingOverrides(biz) {
-  try { return JSON.parse(localStorage.getItem(overridesStorageKey(biz))) || {}; }
-  catch { return {}; }
-}
-
-function saveMappingOverrides(biz, overrides) {
-  localStorage.setItem(overridesStorageKey(biz), JSON.stringify(overrides));
-}
-
-// ── EWT TAX CODE MAPPING (ATC -> Manager tax code) ───────────
-// Shared by 1601EQ, 0619E, 2307, QAP. Requires ATC_MASTER from
-// ewt-helpers.js to be loaded on the page.
-function ewtOverridesStorageKey(biz) { return `ewt_taxcode_overrides_${biz}`; }
-
-function getEwtMappingOverrides(biz) {
-  try { return JSON.parse(localStorage.getItem(ewtOverridesStorageKey(biz))) || {}; }
-  catch { return {}; }
-}
-
-function saveEwtMappingOverrides(biz, overrides) {
-  localStorage.setItem(ewtOverridesStorageKey(biz), JSON.stringify(overrides));
-}
-
-// Auto-match Manager tax codes to BIR ATC codes by name (exact or
-// substring match against ATC_MASTER keys), then apply saved overrides.
-// Returns { tcKeyToAtc: { [managerTaxCodeKey]: {atc, desc, rate} }, atcToTcKey, taxCodes }
-async function getEwtTcMap(biz) {
-  const taxCodes = await fetchManagerTaxCodes(biz);
-  const overrides = getEwtMappingOverrides(biz);
-  const atcToTcKey = {};
-
-  // Auto-match: tax code name contains an ATC code (e.g. "WC158")
-  for (const atc of Object.keys(ATC_MASTER || {})) {
-    const found = taxCodes.find(tc => (tc.name || '').toUpperCase().includes(atc));
-    if (found) atcToTcKey[atc] = found.key;
-  }
-  // Apply overrides on top
-  for (const [atc, tcKey] of Object.entries(overrides)) {
-    if (tcKey) atcToTcKey[atc] = tcKey; else delete atcToTcKey[atc];
-  }
-
-  const tcKeyToAtc = {};
-  for (const [atc, tcKey] of Object.entries(atcToTcKey)) {
-    if (!tcKey) continue;
-    const info = ATC_MASTER[atc];
-    const tc = taxCodes.find(t => t.key === tcKey);
-    // Prefer the real ATC rate from ATC_MASTER: Manager tax codes for EWT
-    // are set up as 0%/100% pass-throughs (line amount = tax withheld), so
-    // tc.rate is not the rate to use for grossing up the tax base.
-    tcKeyToAtc[tcKey] = { atc, desc: info?.desc || atc, rate: Number(info?.rate ?? tc?.rate ?? 0) };
-  }
-  return { tcKeyToAtc, atcToTcKey, taxCodes };
-}
-
-// Final vm = auto-matched mapping with any saved overrides applied on top.
-async function getVatMapping(biz) {
-  const taxCodes = await fetchManagerTaxCodes(biz);
-  const vm = autoMatchVatMapping(taxCodes);
-  const overrides = getMappingOverrides(biz);
-  for (const [catKey, tcKey] of Object.entries(overrides)) {
-    if (tcKey) vm[catKey] = tcKey; else delete vm[catKey];
-  }
-  const rateByKey = {};
-  for (const tc of taxCodes) rateByKey[tc.key] = tc.rate;
-  return { vm, rateByKey };
-}
-
-// Compute net (tax-exclusive) amount and tax amount for an invoice/receipt/payment line.
-function lineAmounts(item, line, rateByKey) {
-  const qty       = Number(line?.qty ?? 1);
-  const unitPrice = Number(line?.salesUnitPrice ?? line?.purchaseUnitPrice ?? line?.unitPrice ?? 0);
-  let gross = qty * unitPrice;
-  if (line?.discountPercentage) gross *= (1 - Number(line.discountPercentage) / 100);
-  gross -= Number(line?.discountAmount || 0);
-
-  const tcKey = line?.taxCode || line?.TaxCode || '';
-  const rate  = Number(rateByKey?.[tcKey] ?? 0);
-  const includesTax = !!item?.amountsIncludeTax;
-
-  let net, tax;
-  if (rate) {
-    if (includesTax) { net = gross / (1 + rate / 100); tax = gross - net; }
-    else             { net = gross; tax = gross * rate / 100; }
-  } else {
-    net = gross; tax = 0;
-  }
-  return { net: Math.abs(net), tax: Math.abs(tax), gross: Math.abs(gross) };
-}
-
 // ── UTILITIES ────────────────────────────────────────────────
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -721,27 +543,4 @@ function returnLine(num, label, amount, bold = false, cls = '') {
     <div class="return-line-label" style="${bold?'font-weight:700;':''}">${label}</div>
     <div class="return-line-amt ${cls}">₱ ${fmt(amount)}</div>
   </div>`;
-}
-
-// ── INCOME TAX REPORT TABS ───────────────────────────────────
-// Wraps the three standard income-tax tab panels (Profit and Loss
-// Statement, BIR Mapping of COA, BIR Form) into a tab bar + panel
-// set. `tabs` is [{ key, label, html }] in display order. Call
-// bindIncomeTaxTabs(el) once after setting el.innerHTML to wire up
-// the click-to-switch behavior.
-function renderIncomeTaxTabs(tabs, activeKey) {
-  const active = activeKey || (tabs[0] && tabs[0].key);
-  const buttons = tabs.map(t => `<button type="button" class="tax-tab-btn${t.key === active ? ' active' : ''}" data-tab="${t.key}">${escHtml(t.label)}</button>`).join('');
-  const panels = tabs.map(t => `<div class="tax-tab-panel" data-tab="${t.key}" style="display:${t.key === active ? 'block' : 'none'};">${t.html}</div>`).join('');
-  return `<div class="tax-tab-bar no-print">${buttons}</div>${panels}`;
-}
-
-function bindIncomeTaxTabs(el) {
-  el.querySelectorAll('.tax-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.tab;
-      el.querySelectorAll('.tax-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
-      el.querySelectorAll('.tax-tab-panel').forEach(p => { p.style.display = (p.dataset.tab === key) ? 'block' : 'none'; });
-    });
-  });
 }

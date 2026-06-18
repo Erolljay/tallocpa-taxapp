@@ -132,6 +132,19 @@ async function buildLookupCache(biz) {
   }).filter(a => a.name && a.key);
   const taxCodeKeyByName = new Map(taxCodes.map(tc => [tc.name.trim().toLowerCase(), tc.key]));
   const accountKeyByName = keyMap(accounts);
+
+  let apAccountKey = accountKeyByName.get('accounts payable') || null;
+  let arAccountKey = accountKeyByName.get('accounts receivable') || null;
+  if (!apAccountKey || !arAccountKey) {
+    const [apSearch, arSearch] = await Promise.all([
+      apAccountKey ? [] : fetchAllBatch('/api4/balance-sheet-account-batch', biz, { q: 'Accounts Payable' }).catch(() => []),
+      arAccountKey ? [] : fetchAllBatch('/api4/balance-sheet-account-batch', biz, { q: 'Accounts Receivable' }).catch(() => []),
+    ]);
+    const searchMap = keyMap([...apSearch, ...arSearch]);
+    apAccountKey = apAccountKey || searchMap.get('accounts payable') || null;
+    arAccountKey = arAccountKey || searchMap.get('accounts receivable') || null;
+  }
+
   _biCache = {
     biz,
     taxCodes,
@@ -139,8 +152,8 @@ async function buildLookupCache(biz) {
     accountKeyByName,
     accountList,
     partyKeyByName: keyMap(parties),
-    apAccountKey: accountKeyByName.get('accounts payable') || null,
-    arAccountKey: accountKeyByName.get('accounts receivable') || null,
+    apAccountKey,
+    arAccountKey,
   };
   return _biCache;
 }
