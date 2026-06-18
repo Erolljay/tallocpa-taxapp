@@ -722,3 +722,26 @@ function returnLine(num, label, amount, bold = false, cls = '') {
     <div class="return-line-amt ${cls}">₱ ${fmt(amount)}</div>
   </div>`;
 }
+
+// ── INCOME TAX REPORT TABS ───────────────────────────────────
+// Wraps the three standard income-tax tab panels (Profit and Loss
+// Statement, BIR Mapping of COA, BIR Form) into a tab bar + panel
+// set. `tabs` is [{ key, label, html }] in display order. Call
+// bindIncomeTaxTabs(el) once after setting el.innerHTML to wire up
+// the click-to-switch behavior.
+function renderIncomeTaxTabs(tabs, activeKey) {
+  const active = activeKey || (tabs[0] && tabs[0].key);
+  const buttons = tabs.map(t => `<button type="button" class="tax-tab-btn${t.key === active ? ' active' : ''}" data-tab="${t.key}">${escHtml(t.label)}</button>`).join('');
+  const panels = tabs.map(t => `<div class="tax-tab-panel" data-tab="${t.key}" style="display:${t.key === active ? 'block' : 'none'};">${t.html}</div>`).join('');
+  return `<div class="tax-tab-bar no-print">${buttons}</div>${panels}`;
+}
+
+function bindIncomeTaxTabs(el) {
+  el.querySelectorAll('.tax-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.tab;
+      el.querySelectorAll('.tax-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      el.querySelectorAll('.tax-tab-panel').forEach(p => { p.style.display = (p.dataset.tab === key) ? 'block' : 'none'; });
+    });
+  });
+}

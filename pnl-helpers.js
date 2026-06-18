@@ -106,6 +106,74 @@ function pnlLineAmount(item, line, rateByKey, bucket) {
   return lineAmounts(item, line, rateByKey).net; // always a positive magnitude
 }
 
+// ── PAYSLIP ITEM -> EXPENSE ACCOUNT CACHE ─────────────────────
+// Manager posts payroll through Payslip transactions, not Journal
+// Entries — each payslip's Earnings/Employer-Contribution lines hit
+// whatever expense account is configured on that earnings/contribution
+// item (Settings > Payroll Items), not an account on the line itself.
+// Deduction lines (WTC, employee SSS/PHIC/HDMF) only redirect part of
+// gross pay to a liability account — gross pay is already captured via
+// the Earnings lines — so they have no separate P&L impact and are
+// skipped here (same logic payroll-helpers.js uses for 1601-C/2316).
+let _payslipItemAccountCache = {};
+async function loadPayslipItemAccounts(biz, force = false) {
+  if (!force && _payslipItemAccountCache[biz]) return _payslipItemAccountCache[biz];
+  const [earnings, contributions] = await Promise.all([
+    fetchAllBatch('/api4/payslip-earnings-item-batch', biz),
+    fetchAllBatch('/api4/payslip-contribution-item-batch', biz),
+  ]);
+  const byKey = {};
+  for (const it of [...earnings, ...contributions]) {
+    const a = it.item || it.value || it;
+    const acct = a.account ?? a.Account ?? a.expenseAccount ?? a.ExpenseAccount;
+    const guid = (acct && typeof acct === 'object') ? (acct.key || acct.Key) : acct;
+    if (guid) byKey[a.key || it.key] = guid;
+  }
+  _payslipItemAccountCache[biz] = byKey;
+  return byKey;
+}
+
+// Sums payslip Earnings + Employer-Contribution lines (e.g. depreciation-
+// style adjustments don't apply here, but salaries/wages, 13th month,
+// SSS/PHIC/HDMF employer share, etc. do) directly into the byAccount/
+// totals produced by aggregateAccountActivity, so payroll booked via
+// Manager's Payslip feature — not manual journal entries — still flows
+// into the income-tax P&L and the Schedule 4/I "Salaries, Wages and
+// Allowances" / "SSS, GSIS, Philhealth, HDMF" deduction categories.
+async function aggregatePayslipActivity(biz, periodStart, periodEnd, coa, byAccount, totals) {
+  const [payslips, itemAccounts] = await Promise.all([
+    fetchAllBatch('/api4/payslip-batch', biz),
+    loadPayslipItemAccounts(biz),
+  ]);
+
+  for (const it of payslips) {
+    const v = it.item || it.value || it;
+    const dateStr = payslipDate(v);
+    if (!inRange(dateStr, periodStart, periodEnd)) continue;
+
+    const lines = [
+      ...(v.earningsLines || v.EarningsLines || v.earnings || v.Earnings || []),
+      ...(v.contributionLines || v.ContributionLines || v.contributions || v.Contributions || []),
+    ];
+    for (const line of lines) {
+      const guid = itemAccounts[lineItemKey(line)];
+      if (!guid) continue;
+      const meta = coa[guid];
+      if (!meta || !meta.isProfitAndLossAccount) continue;
+
+      const amount = lineAmount(line);
+      if (!byAccount[guid]) {
+        byAccount[guid] = { key: guid, name: meta.name || '(Unknown account)', bucket: meta.bucket || 'other', amount: 0, untaxedAmount: 0 };
+      }
+      byAccount[guid].amount += amount;
+
+      if (meta.bucket === 'income') totals.income += amount;
+      else if (meta.bucket === 'cogs') totals.cogs += amount;
+      else if (meta.bucket === 'opex') totals.opex += amount;
+    }
+  }
+}
+
 // ── TRANSACTION AGGREGATOR ───────────────────────────────────
 // Sums net activity per account GUID across all transaction
 // batches for the given date range, restricted to P&L accounts
@@ -161,7 +229,51 @@ async function aggregateAccountActivity(biz, periodStart, periodEnd, coa) {
     }
   }
 
+  await aggregatePayslipActivity(biz, periodStart, periodEnd, coa, byAccount, totals);
+
   return { byAccount, totals };
+}
+
+// ── PROFIT AND LOSS STATEMENT (Income Tax "P&L" tab) ─────────
+// Renders a straight COA-grouped P&L (Income / Cost of Sales /
+// Operating Expenses, each itemized by account) independent of any
+// BIR schedule mapping — this is the "books" P&L, not the return.
+function renderPnLStatementHtml(totals, byAccount) {
+  const rows = Object.values(byAccount || {}).filter(r => Math.abs(r.amount) >= 0.005);
+  const byBucket = bucket => rows.filter(r => r.bucket === bucket).sort((a, b) => a.name.localeCompare(b.name));
+  const income = byBucket('income');
+  const cogs = byBucket('cogs');
+  const opex = byBucket('opex');
+
+  const acctLine = r => `<div class="return-line"><div class="return-line-label">${escHtml(r.name)}</div><div class="return-line-amt">₱ ${fmt(r.amount)}</div></div>`;
+  const emptyLine = `<div class="return-line"><div class="return-line-label" style="color:var(--text-muted);">No activity</div></div>`;
+  const totalLine = (label, amount, cls = '') => `<div class="return-line"><div class="return-line-label" style="font-weight:700;">${label}</div><div class="return-line-amt ${cls}" style="font-weight:700;">₱ ${fmt(amount)}</div></div>`;
+
+  const grossProfit = totals.income - totals.cogs;
+  const netIncome = grossProfit - totals.opex;
+
+  return `
+    <div class="return-section">
+      <div class="return-section-header">Income</div>
+      ${income.map(acctLine).join('') || emptyLine}
+      ${totalLine('Total Income', totals.income)}
+    </div>
+    <div class="return-section">
+      <div class="return-section-header">Cost of Sales</div>
+      ${cogs.map(acctLine).join('') || emptyLine}
+      ${totalLine('Total Cost of Sales', totals.cogs)}
+    </div>
+    <div class="return-section">
+      ${totalLine('Gross Profit', grossProfit, 'highlight')}
+    </div>
+    <div class="return-section">
+      <div class="return-section-header">Operating Expenses</div>
+      ${opex.map(acctLine).join('') || emptyLine}
+      ${totalLine('Total Operating Expenses', totals.opex)}
+    </div>
+    <div class="return-section">
+      ${totalLine('Net Income', netIncome, 'highlight')}
+    </div>`;
 }
 
 // ── PREPAID TAX ASSET (CREDITABLE WITHHOLDING TAX) BALANCE ───

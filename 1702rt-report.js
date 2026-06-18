@@ -103,9 +103,13 @@ function render1702RT(el, data, setup, year, rate, deduction) {
   const name = setup.companyName || setup.taxpayerName || '';
   const sales = data.fullYear.totals.income;
   const cogs = data.fullYear.totals.cogs;
-  const opex = data.fullYear.totals.opex;
+  const schedule = buildItemizedSchedule(App.currentBusiness, data.fullYear.byAccount);
+  const opex = schedule.total;
 
-  el.innerHTML = `
+  const pnlHtml = renderPnLStatementHtml(data.fullYear.totals, data.fullYear.byAccount);
+  const mappingHtml = renderDeductionScheduleHtml(schedule, 'Schedule I – Ordinary Allowable Itemized Deductions');
+
+  const formHtml = `
     <div class="form-title">
       <h2>BIR Form 1702-RT — Annual Income Tax Return for Corporations, Partnerships and Other Non-Individual Taxpayers</h2>
       <div class="sub">For Calendar Year ${year} &nbsp;|&nbsp; Regular Rate ${rate * 100}% — ${deduction === 'osd' ? 'OSD' : 'Itemized Deduction'}</div>
@@ -132,6 +136,8 @@ function render1702RT(el, data, setup, year, rate, deduction) {
       ${manualLine1702RT('35', 'Special Allowable Itemized Deductions', 'c1702rt-35')}
       ${manualLine1702RT('36', 'NOLCO', 'c1702rt-36')}
       <div class="return-line"><div class="return-line-num">37</div><div class="return-line-label">Total Deductions (Itemized)</div><div class="return-line-amt" id="c1702rt-37">₱ 0.00</div></div>
+    </div>
+    <div class="return-section">
       <div class="return-line"><div class="return-line-num">38</div><div class="return-line-label">Optional Standard Deduction (OSD)</div><div class="return-line-amt" id="c1702rt-38">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">39</div><div class="return-line-label" style="font-weight:700;">Net Taxable Income/(Loss) (${deduction === 'osd' ? 'OSD' : 'Itemized'})</div><div class="return-line-amt" id="c1702rt-39">₱ 0.00</div></div>
       <div class="return-line"><div class="return-line-num">40</div><div class="return-line-label">Applicable Income Tax Rate</div><div class="return-line-amt">${rate * 100}%</div></div>
@@ -163,11 +169,19 @@ function render1702RT(el, data, setup, year, rate, deduction) {
       <div class="return-line"><div class="return-line-num">21</div><div class="return-line-label" style="font-weight:700;">TOTAL AMOUNT PAYABLE/(OVERPAYMENT)</div><div class="return-line-amt highlight payable" id="c1702rt-p2-21">₱ 0.00</div></div>
     </div>`;
 
+  el.innerHTML = renderIncomeTaxTabs([
+    { key: 'pnl', label: 'Profit and Loss Statement', html: pnlHtml },
+    { key: 'mapping', label: 'BIR Mapping of COA', html: mappingHtml },
+    { key: 'form', label: 'BIR Form', html: formHtml },
+  ], 'form');
+
   el._totals = { sales, cogs, opex };
   el._rate = rate;
   el._deduction = deduction;
   el._cwtQ4 = data.cwtQ4;
+  bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1702RT(el)));
+  bindDeductionMappingTable(el, App.currentBusiness, () => render1702RT(el, data, setup, year, rate, deduction));
   recompute1702RT(el);
 }
 

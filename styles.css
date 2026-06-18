@@ -551,6 +551,33 @@ body {
 .return-line-amt.refund { color: var(--green); }
 .return-line-amt.highlight { font-size: 14px; }
 
+/* ── INCOME TAX REPORT TABS ── */
+.tax-tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+}
+
+.tax-tab-btn {
+  border: none;
+  background: none;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+
+.tax-tab-btn:hover { color: var(--navy); }
+
+.tax-tab-btn.active {
+  color: var(--navy);
+  border-bottom-color: var(--accent);
+}
+
 /* ── STATUS / ALERTS ── */
 .alert {
   padding: 10px 14px;

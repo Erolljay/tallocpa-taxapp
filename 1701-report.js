@@ -99,11 +99,11 @@ async function generate1701(biz, setup, outputEl) {
   }
 }
 
-function netIncomeFor1701(totals, deduction) {
+function netIncomeFor1701(totals, deduction, itemizedTotal) {
   const sales = totals.income;
   const cogs = totals.cogs;
   const grossIncome = sales - cogs;
-  const itemized = totals.opex;
+  const itemized = itemizedTotal;
   const osd = 0.4 * sales;
   const allowable = deduction === 'osd' ? osd : itemized;
   return { sales, cogs, grossIncome, itemized, osd, allowable, netIncome: grossIncome - allowable };
@@ -111,9 +111,13 @@ function netIncomeFor1701(totals, deduction) {
 
 function render1701(el, data, setup, year, method, deduction) {
   const taxpayerName = [setup.lastName, setup.firstName, setup.middleName].filter(Boolean).join(', ') || setup.taxpayerName;
-  const biz = netIncomeFor1701(data.fullYear.totals, deduction);
+  const schedule = buildItemizedSchedule(App.currentBusiness, data.fullYear.byAccount);
+  const biz = netIncomeFor1701(data.fullYear.totals, deduction, schedule.total);
 
-  el.innerHTML = `
+  const pnlHtml = renderPnLStatementHtml(data.fullYear.totals, data.fullYear.byAccount);
+  const mappingHtml = renderDeductionScheduleHtml(schedule, 'Schedule 4 – Ordinary Allowable Itemized Deductions');
+
+  const formHtml = `
     <div class="form-title">
       <h2>BIR Form 1701 — Annual Income Tax Return for Individuals, Estates and Trusts</h2>
       <div class="sub">For Calendar Year ${year} &nbsp;|&nbsp; ${method === '8pct' ? '8% Flat Rate' : 'Graduated Rates — ' + (deduction === 'osd' ? 'OSD' : 'Itemized Deduction')}</div>
@@ -136,7 +140,7 @@ function render1701(el, data, setup, year, method, deduction) {
       ${manualLine1701('2316', 'Creditable Tax Withheld per BIR Form No. 2316 (employer)', 'c1701-comp-cwt')}
     </div>
 
-    ${method === '8pct' ? render1701Schedule3B(biz) : render1701Schedule3A(biz, deduction)}
+    ${method === '8pct' ? render1701Schedule3B(biz) : render1701Schedule3A(biz, deduction, schedule)}
 
     <div class="return-section">
       <div class="return-section-header">Part VI – Summary of Income Tax Due</div>
@@ -171,14 +175,22 @@ function render1701(el, data, setup, year, method, deduction) {
       <div class="return-line"><div class="return-line-num">31</div><div class="return-line-label" style="font-weight:700;">TOTAL AMOUNT PAYABLE/(OVERPAYMENT)</div><div class="return-line-amt highlight payable" id="c1701-p2-31">₱ 0.00</div></div>
     </div>`;
 
+  el.innerHTML = renderIncomeTaxTabs([
+    { key: 'pnl', label: 'Profit and Loss Statement', html: pnlHtml },
+    { key: 'mapping', label: 'BIR Mapping of COA', html: mappingHtml },
+    { key: 'form', label: 'BIR Form', html: formHtml },
+  ], 'form');
+
   el._biz = biz;
   el._method = method;
   el._cwtQ4 = data.cwtQ4;
+  bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1701(el)));
+  bindDeductionMappingTable(el, App.currentBusiness, () => render1701(el, data, setup, year, method, deduction));
   recompute1701(el);
 }
 
-function render1701Schedule3A(biz, deduction) {
+function render1701Schedule3A(biz, deduction, schedule) {
   const allowableLabel = deduction === 'osd' ? '17 Optional Standard Deduction (OSD)' : '13 Ordinary Allowable Itemized Deductions';
   return `
     <div class="return-section">

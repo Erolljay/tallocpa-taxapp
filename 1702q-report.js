@@ -97,12 +97,12 @@ async function generate1702Q(biz, setup, outputEl) {
   }
 }
 
-function netIncomeFor1702(totals, deduction, nonOp) {
+function netIncomeFor1702(totals, deduction, nonOp, itemizedTotal) {
   const sales = totals.income;
   const cogs = totals.cogs;
   const grossIncomeOps = sales - cogs;
   const totalGrossIncome = grossIncomeOps + nonOp;
-  const itemized = totals.opex;
+  const itemized = itemizedTotal !== undefined ? itemizedTotal : totals.opex;
   const osd = 0.4 * totalGrossIncome;
   const allowable = deduction === 'osd' ? osd : itemized;
   return { sales, cogs, grossIncomeOps, totalGrossIncome, itemized, osd, allowable, taxableIncome: totalGrossIncome - allowable };
@@ -111,7 +111,11 @@ function netIncomeFor1702(totals, deduction, nonOp) {
 function render1702Q(el, data, setup, period, rate, deduction) {
   const name = setup.companyName || setup.taxpayerName || '';
 
-  el.innerHTML = `
+  const schedule = buildItemizedSchedule(App.currentBusiness, data.thisQ.byAccount);
+  const pnlHtml = renderPnLStatementHtml(data.thisQ.totals, data.thisQ.byAccount);
+  const mappingHtml = renderDeductionScheduleHtml(schedule, 'Ordinary Allowable Itemized Deductions (This Quarter)');
+
+  const formHtml = `
     <div class="form-title">
       <h2>BIR Form 1702-Q — Quarterly Income Tax Return for Corporations, Partnerships and Other Non-Individual Taxpayers</h2>
       <div class="sub">For ${escHtml(period.label)} &nbsp;|&nbsp; Regular Rate ${rate * 100}% — ${deduction === 'osd' ? 'OSD' : 'Itemized Deduction'}</div>
@@ -176,10 +180,19 @@ function render1702Q(el, data, setup, period, rate, deduction) {
       <div class="return-line"><div class="return-line-num">25</div><div class="return-line-label" style="font-weight:700;">TOTAL AMOUNT PAYABLE/(OVERPAYMENT)</div><div class="return-line-amt highlight payable" id="c1702q-p2-25">₱ 0.00</div></div>
     </div>`;
 
+  el.innerHTML = renderIncomeTaxTabs([
+    { key: 'pnl', label: 'Profit and Loss Statement', html: pnlHtml },
+    { key: 'mapping', label: 'BIR Mapping of COA', html: mappingHtml },
+    { key: 'form', label: 'BIR Form', html: formHtml },
+  ], 'form');
+
   el._data = data;
   el._rate = rate;
   el._deduction = deduction;
+  el._itemizedTotal = schedule.total;
+  bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1702Q(el)));
+  bindDeductionMappingTable(el, App.currentBusiness, () => render1702Q(el, data, setup, period, rate, deduction));
   recompute1702Q(el);
 }
 
@@ -207,7 +220,7 @@ function recompute1702Q(el) {
   const deduction = el._deduction;
 
   const nonOp = val1702('c1702q-nonop');
-  const thisQNet = netIncomeFor1702(thisQ.totals, deduction, nonOp);
+  const thisQNet = netIncomeFor1702(thisQ.totals, deduction, nonOp, el._itemizedTotal);
   const prevQNet = netIncomeFor1702(cumPrev.totals, deduction, 0);
   const cumNet = netIncomeFor1702(cumToDate.totals, deduction, nonOp);
 

@@ -115,11 +115,11 @@ async function generate1701Q(biz, setup, outputEl) {
   }
 }
 
-function netIncomeFor(totals, deduction) {
+function netIncomeFor(totals, deduction, itemizedTotal) {
   const sales = totals.income;
   const cogs = totals.cogs;
   const grossIncome = sales - cogs;
-  const itemized = totals.opex;
+  const itemized = itemizedTotal !== undefined ? itemizedTotal : totals.opex;
   const osd = 0.4 * sales;
   const allowable = deduction === 'osd' ? osd : itemized;
   return { sales, cogs, grossIncome, itemized, osd, allowable, netIncome: grossIncome - allowable };
@@ -128,10 +128,14 @@ function netIncomeFor(totals, deduction) {
 function render1701Q(el, data, setup, period, method, deduction) {
   const taxpayerName = [setup.lastName, setup.firstName, setup.middleName].filter(Boolean).join(', ') || setup.taxpayerName;
 
-  const thisQ = netIncomeFor(data.thisQ.totals, deduction);
+  const schedule = buildItemizedSchedule(App.currentBusiness, data.thisQ.byAccount);
+  const thisQ = netIncomeFor(data.thisQ.totals, deduction, schedule.total);
   const prevQ = netIncomeFor(data.cumPrev.totals, deduction);
 
-  el.innerHTML = `
+  const pnlHtml = renderPnLStatementHtml(data.thisQ.totals, data.thisQ.byAccount);
+  const mappingHtml = renderDeductionScheduleHtml(schedule, 'Ordinary Allowable Itemized Deductions (This Quarter)');
+
+  const formHtml = `
     <div class="form-title">
       <h2>BIR Form 1701-Q — Quarterly Income Tax Return for Individuals, Estates and Trusts</h2>
       <div class="sub">For ${escHtml(period.label)} &nbsp;|&nbsp; ${method === '8pct' ? '8% Flat Rate' : 'Graduated Rates — ' + (deduction === 'osd' ? 'OSD' : 'Itemized Deduction')}</div>
@@ -171,8 +175,16 @@ function render1701Q(el, data, setup, period, method, deduction) {
       <div class="return-line"><div class="return-line-num">30</div><div class="return-line-label" style="font-weight:700;">TOTAL AMOUNT PAYABLE/(OVERPAYMENT)</div><div class="return-line-amt highlight payable" id="c1701q-line30">₱ 0.00</div></div>
     </div>`;
 
+  el.innerHTML = renderIncomeTaxTabs([
+    { key: 'pnl', label: 'Profit and Loss Statement', html: pnlHtml },
+    { key: 'mapping', label: 'BIR Mapping of COA', html: mappingHtml },
+    { key: 'form', label: 'BIR Form', html: formHtml },
+  ], 'form');
+
   el._cwtThisQuarter = data.cwtThisQuarter;
+  bindIncomeTaxTabs(el);
   el.querySelectorAll('.recon-manual-input').forEach(inp => inp.addEventListener('input', () => recompute1701Q(el, thisQ, prevQ, method)));
+  bindDeductionMappingTable(el, App.currentBusiness, () => render1701Q(el, data, setup, period, method, deduction));
   recompute1701Q(el, thisQ, prevQ, method);
 }
 
