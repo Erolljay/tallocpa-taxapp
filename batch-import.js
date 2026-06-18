@@ -108,14 +108,16 @@ function handleFileChosen(e) {
 // ── LOOKUP CACHE (account/tax-code/contact name -> Manager key) ──
 async function buildLookupCache(biz) {
   if (_biCache && _biCache.biz === biz) return _biCache;
-  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, parties] = await Promise.all([
+  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties] = await Promise.all([
     fetchManagerTaxCodes(biz),
     fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/accounts-payable-control-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/accounts-receivable-control-account-batch', biz).catch(() => []),
     fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
   ]);
-  const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts];
+  const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts, ...apControlAccounts, ...arControlAccounts];
   const keyMap = arr => {
     const m = new Map();
     arr.forEach(row => {
@@ -132,18 +134,15 @@ async function buildLookupCache(biz) {
   }).filter(a => a.name && a.key);
   const taxCodeKeyByName = new Map(taxCodes.map(tc => [tc.name.trim().toLowerCase(), tc.key]));
   const accountKeyByName = keyMap(accounts);
-
-  let apAccountKey = accountKeyByName.get('accounts payable') || null;
-  let arAccountKey = accountKeyByName.get('accounts receivable') || null;
-  if (!apAccountKey || !arAccountKey) {
-    const [apSearch, arSearch] = await Promise.all([
-      apAccountKey ? [] : fetchAllBatch('/api4/balance-sheet-account-batch', biz, { q: 'Accounts Payable' }).catch(() => []),
-      arAccountKey ? [] : fetchAllBatch('/api4/balance-sheet-account-batch', biz, { q: 'Accounts Receivable' }).catch(() => []),
-    ]);
-    const searchMap = keyMap([...apSearch, ...arSearch]);
-    apAccountKey = apAccountKey || searchMap.get('accounts payable') || null;
-    arAccountKey = arAccountKey || searchMap.get('accounts receivable') || null;
-  }
+  // TEMP: hardcoded fallback for the test business while we confirm the
+  // line.account theory — replace with a per-business dynamic lookup once
+  // we find Manager's real endpoint for these control accounts.
+  const apAccountKey = accountKeyByName.get('accounts payable')
+    || (apControlAccounts[0] && (apControlAccounts[0].key || apControlAccounts[0].Key))
+    || 'dac7ba37-0ccd-45e5-906e-548e6c50df37';
+  const arAccountKey = accountKeyByName.get('accounts receivable')
+    || (arControlAccounts[0] && (arControlAccounts[0].key || arControlAccounts[0].Key))
+    || 'd1489e95-bb28-4f5d-b42e-67d3291b3893';
 
   _biCache = {
     biz,
