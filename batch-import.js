@@ -473,7 +473,7 @@ async function runValidation() {
     document.getElementById('bi-output').innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Reading file…</span></div>`;
     const buf = await _biFile.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
+    const ws = wb.Sheets['Batch Import'] || wb.Sheets[wb.SheetNames[0]];
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     const dataRows = aoa.slice(BI_IS_PAYROLL ? 2 : 1).filter(r => r.some(c => String(c).trim() !== ''));
 
