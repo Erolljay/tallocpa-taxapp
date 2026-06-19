@@ -26,7 +26,7 @@ const BI_PARTY_LABEL = BI_IS_SALE ? 'Customer' : 'Supplier';
 const BI_HEADERS = BI_IS_SALE ? [
   'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
   'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
-  'CWT Account', 'CWT Amount', 'WV Account', 'WV Amount',
+  'CWT Account', 'CWT ATC Code', 'CWT Amount', 'WV Account', 'WV ATC Code', 'WV Amount',
   'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
 ] : [
   'Date (YYYY-MM-DD)', 'Supplier Name', 'Reference', 'Account',
@@ -39,7 +39,7 @@ const BI_HEADERS = BI_IS_SALE ? [
 const BI_SAMPLE_ROWS = BI_IS_SALE ? [
   ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
     5600, '', '',
-    '', '', '', '',
+    '', '', '', '', '', '',
     'Yes', 5600, '2026-06-18', 'Cash on Hand'],
 ] : [
   ['2026-06-18', 'ABC Trading', 'BILL-2001', 'Professional Fees',
@@ -66,7 +66,7 @@ async function initBatchImport() {
   document.getElementById('bi-post').addEventListener('click', postAllToManager);
 }
 
-// ── XLSX LOADING (lazy, used only for the template & reading uploads) ──
+// ── XLSX LOADING (lazy, used only for reading uploaded files) ──
 function ensureXLSX(cb) {
   if (window.XLSX) return cb();
   const s = document.createElement('script');
@@ -75,25 +75,111 @@ function ensureXLSX(cb) {
   document.head.appendChild(s);
 }
 
+// ── EXCELJS LOADING (lazy, used only to build the styled/validated template) ──
+function ensureExcelJS(cb) {
+  if (window.ExcelJS) return cb();
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+function colLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+const BI_TEMPLATE_BRAND = 'FF1F4E78';
+
 function downloadTemplate() {
-  ensureXLSX(async () => {
+  ensureExcelJS(async () => {
     const cache = await buildLookupCache(_biBiz);
-    const data = [BI_HEADERS, ...BI_SAMPLE_ROWS];
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Batch Import');
+    const wb = new ExcelJS.Workbook();
 
-    const coaRows = [['Account Title'], ...cache.accountList.map(a => [a.name]).sort((a, b) => a[0].localeCompare(b[0]))];
-    const coaWs = XLSX.utils.aoa_to_sheet(coaRows);
-    XLSX.utils.book_append_sheet(wb, coaWs, 'Chart of Accounts');
+    // Instructions sheet
+    const instr = wb.addWorksheet('Instructions');
+    instr.getColumn(1).width = 100;
+    const titleRow = instr.addRow([`Batch ${BI_IS_SALE ? 'Sales' : 'Purchase'} Import — Instructions`]);
+    titleRow.font = { bold: true, size: 14, color: { argb: BI_TEMPLATE_BRAND } };
+    instr.addRow([]);
+    const steps = [
+      '1. Fill in the "Batch Import" sheet below — one row per invoice.',
+      '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-18).',
+      '3. Account columns: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title.',
+      BI_IS_SALE
+        ? '4. CWT/WV ATC Code columns: pick a value from the dropdown (sourced from the "ATC Codes" sheet).'
+        : '4. ATC Code column: pick a value from the dropdown (sourced from the "ATC Codes" sheet).',
+      '5. Withholding amounts (CWT, WV, Withholding Tax) — enter as a positive number; they are recorded as deductions automatically.',
+      '6. "Paid Same Day" — enter Yes only if the invoice was settled in cash/bank on the same day; otherwise leave it as No.',
+      '7. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
+      '8. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post.',
+    ];
+    steps.forEach(s => { const row = instr.addRow([s]); row.font = { size: 11 }; row.alignment = { wrapText: true }; });
 
-    if (!BI_IS_SALE) {
-      const atcCodes = cache.taxCodes.filter(tc => /^W[ICVB]\d/.test(tc.name)).map(tc => [tc.name]).sort((a, b) => a[0].localeCompare(b[0]));
-      const atcWs = XLSX.utils.aoa_to_sheet([['ATC Code (Tax Code Name)'], ...atcCodes]);
-      XLSX.utils.book_append_sheet(wb, atcWs, 'ATC Codes');
-    }
+    // Batch Import sheet
+    const ws = wb.addWorksheet('Batch Import');
+    ws.addRow(BI_HEADERS);
+    BI_SAMPLE_ROWS.forEach(r => ws.addRow(r));
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BI_TEMPLATE_BRAND } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    headerRow.height = 32;
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    BI_HEADERS.forEach((h, i) => { ws.getColumn(i + 1).width = Math.max(14, Math.min(28, h.length + 4)); });
+    ws.getRow(2).font = { italic: true, color: { argb: 'FF888888' } };
 
-    XLSX.writeFile(wb, `batch_import_${BI_IS_SALE ? 'sales' : 'purchase'}_template.xlsx`);
+    // Chart of Accounts sheet
+    const coa = wb.addWorksheet('Chart of Accounts');
+    coa.getColumn(1).width = 40;
+    coa.addRow(['Account Title']).font = { bold: true };
+    const accountNames = cache.accountList.map(a => a.name).sort((a, b) => a.localeCompare(b));
+    accountNames.forEach(n => coa.addRow([n]));
+
+    // ATC Codes sheet
+    const atc = wb.addWorksheet('ATC Codes');
+    atc.getColumn(1).width = 50;
+    atc.addRow(['ATC Code (Tax Code Name)']).font = { bold: true };
+    const atcCodes = cache.taxCodes.filter(tc => /^W[ICVB]\d/.test(tc.name)).map(tc => tc.name).sort((a, b) => a.localeCompare(b));
+    atcCodes.forEach(n => atc.addRow([n]));
+
+    // Dropdown validation on Account / ATC Code columns, sourced from the reference sheets
+    const coaRange = `'Chart of Accounts'!$A$2:$A$${Math.max(2, accountNames.length + 1)}`;
+    const atcRange = `'ATC Codes'!$A$2:$A$${Math.max(2, atcCodes.length + 1)}`;
+    const LAST_DATA_ROW = 500;
+    BI_HEADERS.forEach((h, i) => {
+      const isAccountCol = /account/i.test(h);
+      const isAtcCol = /atc code/i.test(h);
+      if (!isAccountCol && !isAtcCol) return;
+      const letter = colLetter(i + 1);
+      for (let r = 2; r <= LAST_DATA_ROW; r++) {
+        ws.getCell(`${letter}${r}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [isAccountCol ? coaRange : atcRange],
+          showErrorMessage: true,
+          errorStyle: 'warning',
+          errorTitle: 'Not in list',
+          error: 'Pick a value from the dropdown, or type the exact name from the reference sheet.',
+        };
+      }
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `batch_import_${BI_IS_SALE ? 'sales' : 'purchase'}_template.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   });
 }
 
@@ -198,10 +284,10 @@ function parseSaleRow(r, idx, cache) {
     reference: get(2),
     amountsIncludeTax: true,
     lines: [],
-    paid: /^y/i.test(get(11)),
-    paidAmount: parseFloat(get(12)) || 0,
-    paidDate: get(13),
-    paymentAccount: get(14),
+    paid: /^y/i.test(get(13)),
+    paidAmount: parseFloat(get(14)) || 0,
+    paidDate: get(15),
+    paymentAccount: get(16),
   };
 
   const revenueAcctName = get(3);
@@ -209,9 +295,11 @@ function parseSaleRow(r, idx, cache) {
   const exempt     = num(5);
   const zeroRated  = num(6);
   const cwtAcctName = get(7);
-  const cwt        = Math.abs(num(8));
-  const wvAcctName  = get(9);
-  const wv         = Math.abs(num(10));
+  const cwtAtcCode = get(8);
+  const cwt        = Math.abs(num(9));
+  const wvAcctName  = get(10);
+  const wvAtcCode  = get(11);
+  const wv         = Math.abs(num(12));
 
   const resolveAcct = (name, label) => {
     if (!name) { errors.push(`${label} account is blank — copy an Account Title from the Chart of Accounts sheet`); return null; }
@@ -220,13 +308,20 @@ function parseSaleRow(r, idx, cache) {
     return key || null;
   };
 
+  const resolveAtc = (code, label) => {
+    if (!code) { errors.push(`${label} ATC Code is blank — copy one from the ATC Codes sheet`); return null; }
+    const key = cache.taxCodeKeyByName.get(code.trim().toLowerCase());
+    if (!key) errors.push(`${label} ATC Code "${code}" not found in Manager — check spelling against the ATC Codes sheet`);
+    return key || null;
+  };
+
   const revenueAcctKey = (vatable > 0 || exempt > 0 || zeroRated > 0) ? resolveAcct(revenueAcctName, 'Revenue') : null;
 
   if (vatable > 0)   row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: vatable, tcName: 'Output VAT 12%' });
   if (exempt > 0)    row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: exempt, tcName: 'VAT Exempt Sales' });
   if (zeroRated > 0) row.lines.push({ acctKey: revenueAcctKey, acctName: revenueAcctName || 'Revenue', amount: zeroRated, tcName: 'Zero-Rated Sales' });
-  if (cwt > 0)       row.lines.push({ acctKey: resolveAcct(cwtAcctName, 'CWT'), acctName: cwtAcctName || 'CWT', amount: -cwt, tcName: null });
-  if (wv > 0)        row.lines.push({ acctKey: resolveAcct(wvAcctName, 'WV'), acctName: wvAcctName || 'WV', amount: -wv, tcName: null });
+  if (cwt > 0)       row.lines.push({ acctKey: resolveAcct(cwtAcctName, 'CWT'), acctName: cwtAcctName || 'CWT', amount: -cwt, tcName: cwtAtcCode, tcKey: resolveAtc(cwtAtcCode, 'CWT') });
+  if (wv > 0)        row.lines.push({ acctKey: resolveAcct(wvAcctName, 'WV'), acctName: wvAcctName || 'WV', amount: -wv, tcName: wvAtcCode, tcKey: resolveAtc(wvAtcCode, 'WV') });
 
   ['Output VAT 12%', 'VAT Exempt Sales', 'Zero-Rated Sales'].forEach(tc => {
     if (row.lines.some(l => l.tcName === tc) && !cache.taxCodeKeyByName.has(tc.toLowerCase())) {
