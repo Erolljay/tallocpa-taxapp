@@ -12,8 +12,31 @@
      batch-import-purchase.html sets BI_TXN_TYPE = 'Purchase'
    ============================================================ */
 
-const BI_IS_SALE = (typeof BI_TXN_TYPE !== 'undefined' ? BI_TXN_TYPE : 'Sale') === 'Sale';
-const BI_PARTY_LABEL = BI_IS_SALE ? 'Customer' : 'Supplier';
+const BI_IS_PAYROLL = (typeof BI_TXN_TYPE !== 'undefined' ? BI_TXN_TYPE : 'Sale') === 'Payroll';
+const BI_IS_SALE = !BI_IS_PAYROLL && (typeof BI_TXN_TYPE !== 'undefined' ? BI_TXN_TYPE : 'Sale') === 'Sale';
+const BI_PARTY_LABEL = BI_IS_PAYROLL ? 'Employee' : (BI_IS_SALE ? 'Customer' : 'Supplier');
+
+// ── PAYROLL: fixed BIR earnings/deduction/contribution categories, each
+// column resolves (via the existing Payslip Items mapping) to whichever
+// Manager payslip item the firm already assigned to that category.
+const BI_PAYROLL_COLS = [
+  { header: 'Basic Pay',                  cat: 'ph-bir-earn-01', group: 'earnings' },
+  { header: 'Overtime Pay',               cat: 'ph-bir-earn-02', group: 'earnings' },
+  { header: 'Holiday Pay',                cat: 'ph-bir-earn-03', group: 'earnings' },
+  { header: 'Night Differential',         cat: 'ph-bir-earn-04', group: 'earnings' },
+  { header: 'Hazard Pay',                 cat: 'ph-bir-earn-05', group: 'earnings' },
+  { header: '13th Month Pay',             cat: 'ph-bir-earn-06', group: 'earnings' },
+  { header: 'De Minimis Benefits',        cat: 'ph-bir-earn-07', group: 'earnings' },
+  { header: 'Other Taxable Pay',          cat: 'ph-bir-earn-08', group: 'earnings' },
+  { header: 'SSS Employee Share',         cat: 'ph-bir-ded-02',  group: 'deductions' },
+  { header: 'PhilHealth Employee Share',  cat: 'ph-bir-ded-03',  group: 'deductions' },
+  { header: 'Pag-IBIG Employee Share',    cat: 'ph-bir-ded-04',  group: 'deductions' },
+  { header: 'Withholding Tax',            cat: 'ph-bir-ded-01',  group: 'deductions' },
+  { header: 'SSS Employer Share',         cat: 'ph-bir-con-01',  group: 'contributions' },
+  { header: 'PhilHealth Employer Share',  cat: 'ph-bir-con-02',  group: 'contributions' },
+  { header: 'Pag-IBIG Employer Share',    cat: 'ph-bir-con-03',  group: 'contributions' },
+];
+const BI_PAYROLL_TYPE_ENDPOINT = { earnings: 'payslip-earnings-item', deductions: 'payslip-deduction-item', contributions: 'payslip-contribution-item' };
 
 // ── SIMPLE CLIENT TEMPLATE (what the client/bookkeeper fills in) ──
 // Both Sales and Purchase invoices are always tax-inclusive: VAT-category
@@ -23,7 +46,11 @@ const BI_PARTY_LABEL = BI_IS_SALE ? 'Customer' : 'Supplier';
 // purchases, ATC/withholding tax codes) vary per business, so the
 // downloaded template includes extra reference sheets (fetched live for
 // the selected business) to copy exact names from.
-const BI_HEADERS = BI_IS_SALE ? [
+const BI_HEADERS = BI_IS_PAYROLL ? [
+  'Pay Period End / Payment Date (YYYY-MM-DD)', 'Employee Name', 'Reference',
+  ...BI_PAYROLL_COLS.map(c => c.header),
+  'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Net Pay Clearing Account', 'Payment Account (Cash/Bank)',
+] : BI_IS_SALE ? [
   'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
   'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
   'CWT Account', 'CWT ATC Code', 'CWT Amount', 'WV Account', 'WV ATC Code', 'WV Amount',
@@ -36,7 +63,14 @@ const BI_HEADERS = BI_IS_SALE ? [
   'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
 ];
 
-const BI_SAMPLE_ROWS = BI_IS_SALE ? [
+const BI_SAMPLE_ROWS = BI_IS_PAYROLL ? [
+  ['2026-06-15', 'Juan Dela Cruz', 'PAYROLL-JUN1-2026',
+    15000, '', '', '', '', '', '', '',
+    562.50, 450, 175,
+    300,
+    562.50, 450, 175,
+    'Yes', 13412.50, '2026-06-15', 'Salaries Payable', 'Cash on Hand'],
+] : BI_IS_SALE ? [
   ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
     5600, '', '',
     '', '', '', '', '', '',
@@ -104,10 +138,18 @@ function downloadTemplate() {
     // Instructions sheet
     const instr = wb.addWorksheet('Instructions');
     instr.getColumn(1).width = 100;
-    const titleRow = instr.addRow([`Batch ${BI_IS_SALE ? 'Sales' : 'Purchase'} Import — Instructions`]);
+    const titleRow = instr.addRow([`Batch ${BI_IS_PAYROLL ? 'Payroll' : (BI_IS_SALE ? 'Sales' : 'Purchase')} Import — Instructions`]);
     titleRow.font = { bold: true, size: 14, color: { argb: BI_TEMPLATE_BRAND } };
     instr.addRow([]);
-    const steps = [
+    const steps = BI_IS_PAYROLL ? [
+      '1. Fill in the "Batch Import" sheet below — one row per employee per pay period.',
+      '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-15).',
+      '3. Earnings/Deduction/Contribution columns map to whichever Manager payslip item the firm has already assigned to that BIR category under the app\'s "Payslip items" tab — leave a column blank if it does not apply to this payslip.',
+      '4. "Net Pay Clearing Account" / "Payment Account" columns: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title.',
+      '5. "Paid Same Day" — enter Yes only if net pay was disbursed in cash/bank on the same day; otherwise leave it as No.',
+      '6. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
+      '7. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post.',
+    ] : [
       '1. Fill in the "Batch Import" sheet below — one row per invoice.',
       '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-18).',
       '3. Account columns: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title.',
@@ -175,7 +217,7 @@ function downloadTemplate() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `batch_import_${BI_IS_SALE ? 'sales' : 'purchase'}_template.xlsx`;
+    a.download = `batch_import_${BI_IS_PAYROLL ? 'payroll' : (BI_IS_SALE ? 'sales' : 'purchase')}_template.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -194,16 +236,7 @@ function handleFileChosen(e) {
 // ── LOOKUP CACHE (account/tax-code/contact name -> Manager key) ──
 async function buildLookupCache(biz) {
   if (_biCache && _biCache.biz === biz) return _biCache;
-  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties] = await Promise.all([
-    fetchManagerTaxCodes(biz),
-    fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
-    fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
-    fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
-    fetchAllBatch('/api4/accounts-payable-control-account-batch', biz).catch(() => []),
-    fetchAllBatch('/api4/accounts-receivable-control-account-batch', biz).catch(() => []),
-    fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
-  ]);
-  const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts, ...apControlAccounts, ...arControlAccounts];
+
   const keyMap = arr => {
     const m = new Map();
     arr.forEach(row => {
@@ -214,6 +247,63 @@ async function buildLookupCache(biz) {
     });
     return m;
   };
+
+  if (BI_IS_PAYROLL) {
+    const [bsAccounts, plAccounts, bankCashAccounts, employees, earningsItems, deductionItems, contributionItems, payrollMap] = await Promise.all([
+      fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
+      fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
+      fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
+      fetchAllBatch('/api4/employee-batch', biz),
+      fetchAllBatch('/api4/payslip-earnings-item-batch', biz).catch(() => []),
+      fetchAllBatch('/api4/payslip-deduction-item-batch', biz).catch(() => []),
+      fetchAllBatch('/api4/payslip-contribution-item-batch', biz).catch(() => []),
+      getPayrollMapping(biz),
+    ]);
+    const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts];
+    const accountList = accounts.map(row => {
+      const d = row?.item || row?.value || row || {};
+      return { name: (d.name || d.Name || '').trim(), key: row?.key || row?.Key || d.key || '' };
+    }).filter(a => a.name && a.key);
+
+    const itemsByGroup = { earnings: earningsItems, deductions: deductionItems, contributions: contributionItems };
+    const itemNameByKey = new Map();
+    const itemGroupByKey = new Map();
+    Object.entries(itemsByGroup).forEach(([group, items]) => {
+      items.forEach(row => {
+        const d = row?.item || row?.value || row || {};
+        const k = row?.key || row?.Key || d.key || '';
+        const n = (d.name || d.Name || '').trim();
+        if (k) { itemNameByKey.set(k, n); itemGroupByKey.set(k, group); }
+      });
+    });
+    // Resolve each BIR category to the first payslip item the firm assigned to it.
+    const itemKeyByCategory = new Map();
+    Object.entries(payrollMap || {}).forEach(([itemKey, cat]) => {
+      if (cat && !itemKeyByCategory.has(cat) && itemGroupByKey.has(itemKey)) itemKeyByCategory.set(cat, itemKey);
+    });
+
+    _biCache = {
+      biz,
+      accountKeyByName: keyMap(accounts),
+      accountList,
+      partyKeyByName: keyMap(employees),
+      itemKeyByCategory,
+      itemNameByKey,
+      itemGroupByKey,
+    };
+    return _biCache;
+  }
+
+  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties] = await Promise.all([
+    fetchManagerTaxCodes(biz),
+    fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/accounts-payable-control-account-batch', biz).catch(() => []),
+    fetchAllBatch('/api4/accounts-receivable-control-account-batch', biz).catch(() => []),
+    fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
+  ]);
+  const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts, ...apControlAccounts, ...arControlAccounts];
   const accountList = accounts.map(row => {
     const d = row?.item || row?.value || row || {};
     return { name: (d.name || d.Name || '').trim(), key: row?.key || row?.Key || d.key || '' };
@@ -263,7 +353,68 @@ async function runValidation() {
 }
 
 function parseRow(r, idx, cache) {
+  if (BI_IS_PAYROLL) return parsePayrollRow(r, idx, cache);
   return BI_IS_SALE ? parseSaleRow(r, idx, cache) : parsePurchaseRow(r, idx, cache);
+}
+
+function parsePayrollRow(r, idx, cache) {
+  const errors = [];
+  const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
+  const num = i => parseFloat(get(i)) || 0;
+
+  const FIRST_COL = 3; // 0=Date, 1=Employee Name, 2=Reference
+  const paidColStart = FIRST_COL + BI_PAYROLL_COLS.length;
+
+  const row = {
+    rowNum: idx + 2,
+    date: get(0),
+    partyName: get(1),
+    reference: get(2),
+    lines: [],
+    paid: /^y/i.test(get(paidColStart)),
+    paidAmount: parseFloat(get(paidColStart + 1)) || 0,
+    paidDate: get(paidColStart + 2),
+    netPayAccount: get(paidColStart + 3),
+    paymentAccount: get(paidColStart + 4),
+  };
+
+  let hasAmount = false;
+  BI_PAYROLL_COLS.forEach((col, i) => {
+    const amount = Math.abs(num(FIRST_COL + i));
+    if (amount <= 0) return;
+    hasAmount = true;
+    const itemKey = cache.itemKeyByCategory.get(col.cat);
+    if (!itemKey) {
+      errors.push(`No payslip item is assigned to BIR category "${col.header}" — assign one under the app's "Payslip items" tab first`);
+      return;
+    }
+    row.lines.push({
+      group: col.group,
+      itemKey,
+      acctName: cache.itemNameByKey.get(itemKey) || col.header,
+      amount,
+    });
+  });
+
+  if (!row.date || isNaN(new Date(row.date).getTime())) errors.push(`Date is missing/invalid`);
+  if (!row.partyName) errors.push(`${BI_PARTY_LABEL} name is blank`);
+  if (!hasAmount) errors.push(`No earnings/deduction/contribution amount entered`);
+
+  row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
+
+  if (row.paid) {
+    if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
+    if (!row.paidDate || isNaN(new Date(row.paidDate).getTime())) errors.push(`Paid = Yes but Paid Date is missing/invalid`);
+    if (!row.netPayAccount) errors.push(`Paid = Yes but Net Pay Clearing Account is blank`);
+    else checkAccount(errors, 'Net Pay Clearing', row.netPayAccount, cache);
+    if (!row.paymentAccount) errors.push(`Paid = Yes but Payment Account is blank`);
+    else checkAccount(errors, 'Payment', row.paymentAccount, cache);
+  }
+
+  row.errors = errors;
+  row.status = errors.length ? 'error' : (row.partyMissing ? 'warn' : 'ok');
+  row.posted = false;
+  return row;
 }
 
 function checkAccount(errors, label, acctName, cache) {
@@ -476,16 +627,63 @@ async function ensureParty(name, cache) {
   if (existing) return existing;
 
   const key = crypto.randomUUID();
-  await apiRequest('PUT', BI_IS_SALE ? '/api4/customer' : '/api4/supplier', {
-    key,
-    value: {
-      name: name.trim(),
-      inactive: false,
-      controlAccount: BI_IS_SALE ? cache.arAccountKey : cache.apAccountKey,
-    },
-  });
+  if (BI_IS_PAYROLL) {
+    await apiRequest('PUT', '/api4/employee', { key, value: { name: name.trim(), inactive: false } });
+  } else {
+    await apiRequest('PUT', BI_IS_SALE ? '/api4/customer' : '/api4/supplier', {
+      key,
+      value: {
+        name: name.trim(),
+        inactive: false,
+        controlAccount: BI_IS_SALE ? cache.arAccountKey : cache.apAccountKey,
+      },
+    });
+  }
   cache.partyKeyByName.set(lname, key);
   return key;
+}
+
+async function postPayrollRow(row, cache) {
+  const empKey = await ensureParty(row.partyName, cache);
+
+  const earningsLines = row.lines.filter(l => l.group === 'earnings')
+    .map(l => ({ earningsItem: l.itemKey, earningsAmount: l.amount }));
+  const deductionLines = row.lines.filter(l => l.group === 'deductions')
+    .map(l => ({ deductionItem: l.itemKey, deductionAmount: l.amount }));
+  const contributionLines = row.lines.filter(l => l.group === 'contributions')
+    .map(l => ({ contributionItem: l.itemKey, contributionAmount: l.amount }));
+
+  const payslipKey = crypto.randomUUID();
+  await apiRequest('PUT', '/api4/payslip', {
+    key: payslipKey,
+    value: {
+      employee: empKey,
+      paymentDate: row.date,
+      payPeriodStart: row.date,
+      payPeriodEnd: row.date,
+      reference: row.reference || null,
+      earningsLines,
+      deductionLines,
+      contributionLines,
+    },
+  });
+
+  if (row.paid) {
+    const netPayAcctKey = cache.accountKeyByName.get(row.netPayAccount.trim().toLowerCase()) || null;
+    const paymentAcctKey = cache.accountKeyByName.get(row.paymentAccount.trim().toLowerCase()) || null;
+    await apiRequest('PUT', '/api4/payment', {
+      key: crypto.randomUUID(),
+      value: {
+        date: row.paidDate,
+        reference: row.reference || null,
+        paidFrom: paymentAcctKey,
+        description: `Net pay — ${row.partyName}`,
+        lines: [{ account: netPayAcctKey, amount: row.paidAmount }],
+      },
+    });
+  }
+
+  return payslipKey;
 }
 
 async function postInvoiceRow(row, cache) {
@@ -567,7 +765,7 @@ async function postAllToManager() {
     const row = _biRows[i];
     setRowStatus(i, `<div class="spinner-wrap" style="justify-content:flex-start;"><div class="spinner" style="width:14px;height:14px;"></div><span>Posting…</span></div>`);
     try {
-      await postInvoiceRow(row, cache);
+      await (BI_IS_PAYROLL ? postPayrollRow(row, cache) : postInvoiceRow(row, cache));
       row.posted = true;
       successCount++;
       setRowStatus(i, '✅ Posted to Manager' + (row.paid ? ' + settled' : ''));
@@ -583,6 +781,6 @@ async function postAllToManager() {
     <div class="alert ${failures.length ? 'alert-warning' : 'alert-info'}" style="margin-top:14px;">
       ${failures.length
         ? `⚠️ Posted <strong>${successCount}</strong> of <strong>${okIdx.length}</strong> rows. <strong>${failures.length}</strong> failed — see row(s) above for the error, fix the source data, and click "Post to Manager" again to retry just the failed rows.`
-        : `✅ Posted <strong>${successCount}</strong> row(s) to Manager — ${BI_PARTY_LABEL}s created as needed, then Invoices, then ${BI_IS_SALE ? 'Receipts' : 'Payments'} for rows marked Paid Same Day.`}
+        : `✅ Posted <strong>${successCount}</strong> row(s) to Manager — ${BI_PARTY_LABEL}s created as needed, then ${BI_IS_PAYROLL ? 'Payslips, then Payments' : 'Invoices, then ' + (BI_IS_SALE ? 'Receipts' : 'Payments')} for rows marked Paid Same Day.`}
     </div>`;
 }

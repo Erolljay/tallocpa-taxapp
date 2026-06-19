@@ -214,4 +214,10 @@ const BATCH_IMPORT_INSTALLS = [
     file: 'batch-import-purchase.html',
     placement: 'purchase-invoices',
   },
+  {
+    id: '3c4d5e6f-7a8b-4901-bcde-f2a3b4c5d6e7',
+    name: 'Batch Import — Payroll',
+    file: 'batch-import-payroll.html',
+    placement: 'payslips',
+  },
 ];
