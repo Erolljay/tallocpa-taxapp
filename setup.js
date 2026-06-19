@@ -496,7 +496,7 @@ function saveVATMapping() {
 }
 
 // ── TAB: EWT MAPPING ───────────────────────────────────────────
-// Requires ewt-helpers.js (ATC_MASTER) and shared.js (getEwtTcMap /
+// Requires ewt-helpers.js (ATC_MASTER) and tax-codes.js (getEwtTcMap /
 // saveEwtMappingOverrides) to be loaded on this page.
 async function loadEwtMappingTab() {
   const panel = document.getElementById('tab-ewt');

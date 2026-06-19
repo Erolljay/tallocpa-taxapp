@@ -38,10 +38,24 @@ async function initQAPReport() {
 
   filterEl.innerHTML = `
     <div class="filter-bar">
-      <label>Quarter</label>
-      <select id="qap-quarter">
-        ${[1,2,3,4].map(q=>`<option value="${q}"${q===curQ?' selected':''}>${quarterLabel(q)}</option>`).join('')}
+      <label>Period</label>
+      <select id="qap-ptype">
+        <option value="quarterly">Quarterly</option>
+        <option value="monthly">Monthly</option>
+        <option value="annual">Annual</option>
       </select>
+      <span id="qap-qwrap">
+        <label>Quarter</label>
+        <select id="qap-quarter">
+          ${[1,2,3,4].map(q=>`<option value="${q}"${q===curQ?' selected':''}>${quarterLabel(q)}</option>`).join('')}
+        </select>
+      </span>
+      <span id="qap-mwrap" style="display:none;">
+        <label>Month</label>
+        <select id="qap-month">
+          ${[0,1,2,3,4,5,6,7,8,9,10,11].map(m=>`<option value="${m}"${m===now.getMonth()?' selected':''}>${monthName(m)}</option>`).join('')}
+        </select>
+      </span>
       <label>Year</label>
       <select id="qap-year">
         ${years.map(y=>`<option value="${y}"${y===curY?' selected':''}>${y}</option>`).join('')}
@@ -54,7 +68,18 @@ async function initQAPReport() {
     <div style="font-size:11px;color:#6b7280;margin-top:4px;">
       Business: <strong>${escHtml(biz)}</strong> &nbsp;|&nbsp;
       TIN: <strong>${escHtml(setup.tin||'—')}</strong>
+    </div>
+    <div id="qap-period-note" style="font-size:11px;color:#9ca3af;margin-top:2px;display:none;">
+      ℹ️ The Excel (Annex A) report always covers the full quarter. Only the DAT file follows the selected period above.
     </div>`;
+
+  document.getElementById('qap-ptype').addEventListener('change', function () {
+    const isM = this.value === 'monthly';
+    const isA = this.value === 'annual';
+    document.getElementById('qap-qwrap').style.display = isM || isA ? 'none' : '';
+    document.getElementById('qap-mwrap').style.display = isM ? '' : 'none';
+    document.getElementById('qap-period-note').style.display = isM || isA ? '' : 'none';
+  });
 
   document.getElementById('qap-gen').addEventListener('click', () => generateQAP(biz, setup, outputEl));
 
@@ -143,30 +168,57 @@ async function buildQAPRows(biz, start, end) {
 async function generateQAP(biz, setup, outputEl) {
   outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Fetching transactions…</span></div>`;
 
-  const q    = parseInt(document.getElementById('qap-quarter').value, 10);
-  const year = parseInt(document.getElementById('qap-year').value, 10);
+  const ptypeEl  = document.getElementById('qap-ptype');
+  const ptype    = ptypeEl ? ptypeEl.value : 'quarterly';
+  const year     = parseInt(document.getElementById('qap-year').value, 10);
   const formType = '1601EQ';
-  const { start, end } = getPeriodDates('quarterly', q, year);
+
+  // The Excel (Annex A) report is always generated for the full quarter,
+  // regardless of the period filter — derive that quarter here.
+  const q = ptype === 'monthly'
+    ? Math.ceil((parseInt(document.getElementById('qap-month').value, 10) + 1) / 3)
+    : parseInt(document.getElementById('qap-quarter').value, 10);
+  const { start: qStart, end: qEnd } = getPeriodDates('quarterly', q, year);
+
+  // The DAT period follows the selected filter: a single month, a full
+  // quarter, or the full year.
+  let datStart, datEnd, periodLabel;
+  if (ptype === 'monthly') {
+    const month = parseInt(document.getElementById('qap-month').value, 10);
+    ({ start: datStart, end: datEnd } = getPeriodDates('monthly', month, year));
+    periodLabel = `${monthName(month)} ${year}`;
+  } else if (ptype === 'annual') {
+    datStart = new Date(year, 0, 1);
+    datEnd   = new Date(year, 11, 31, 23, 59, 59, 999);
+    periodLabel = `${year}`;
+  } else {
+    datStart = qStart; datEnd = qEnd;
+    periodLabel = `${quarterLabel(q)} ${year}`;
+  }
 
   try {
-    const rows = await buildQAPRows(biz, start, end);
+    // Rows shown on screen / used for the DAT file follow the selected period.
+    const rows = await buildQAPRows(biz, datStart, datEnd);
     _qapRows = rows;
 
     if (!rows.length) {
       outputEl.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>No EWT Transactions Found</h3>
-        <p>No purchase invoices or payments with EWT tax codes matched for ${escHtml(quarterLabel(q))} ${year}.</p></div>`;
+        <p>No purchase invoices or payments with EWT tax codes matched for ${escHtml(periodLabel)}.</p></div>`;
       document.getElementById('qap-excel').style.display = 'none';
       document.getElementById('qap-dat').style.display   = 'none';
       return;
     }
 
-    const periodLabel = `${quarterLabel(q)} ${year}`;
     renderQAPTable(outputEl, rows, periodLabel, setup);
 
-    document.getElementById('qap-excel').style.display = '';
-    document.getElementById('qap-dat').style.display   = '';
-    document.getElementById('qap-excel').onclick = () => exportQAPExcel(rows, periodLabel, setup, end, formType);
-    document.getElementById('qap-dat').onclick   = () => exportQAPDat(rows, setup, end, formType);
+    document.getElementById('qap-excel').style.display = ptype === 'quarterly' ? '' : 'none';
+    document.getElementById('qap-dat').style.display    = '';
+    if (ptype === 'quarterly') {
+      document.getElementById('qap-excel').onclick = () => exportQAPExcel(rows, periodLabel, setup, qEnd, formType);
+      document.getElementById('qap-dat').onclick   = () => exportQAPDat(rows, setup, datEnd, formType);
+    } else {
+      document.getElementById('qap-dat').onclick = () => exportQAPDatSimple(rows, setup, datStart, datEnd, formType, ptype);
+    }
 
   } catch (err) {
     outputEl.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
@@ -408,6 +460,65 @@ function exportQAPDat(rows, setup, periodEnd, formType) {
   const content = lines.join('\r\n') + '\r\n';
   const blob = new Blob([content], { type: 'text/plain' });
   const periodTag = `${String(qEnd.getMonth()+1).padStart(2,'0')}${qEnd.getFullYear()}`;
+  const fname = `${ourTin}0000QAP${periodTag}${formType}.DAT`;
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fname });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// DAT export for a single period (one month, or a full year) with no
+// 3-month breakdown — used when the QAP filter is set to Monthly or Annual,
+// since BIR eSubmission expects per-month detail rather than the quarterly
+// Annex A layout.
+function exportQAPDatSimple(rows, setup, periodStart, periodEnd, formType, ptype) {
+  if (!validateQAPDat(rows)) return;
+  const ourTin = tin9(setup.tin);
+  const rdo    = (setup.rdoCode || '').padStart(3, '0').substring(0, 3);
+
+  const startStr = `${String(periodStart.getMonth()+1).padStart(2,'0')}/${periodStart.getFullYear()}`;
+  const endStr   = `${String(periodEnd.getMonth()+1).padStart(2,'0')}/${periodEnd.getFullYear()}`;
+
+  const ownerIsInd = setup.classification === 'Individual';
+  const agentName = (setup.companyName || setup.taxpayerName || '').toUpperCase();
+  const ln = ownerIsInd ? (setup.lastName || '').toUpperCase()  : '';
+  const fn = ownerIsInd ? (setup.firstName || '').toUpperCase() : '';
+  const mn = ownerIsInd ? (setup.middleName || '').toUpperCase(): '';
+
+  const lines = [];
+
+  // Header record
+  lines.push([
+    'HQAP', `H${formType}`, ourTin, '0000', `"${agentName}"`, startStr, rdo,
+  ].join(','));
+
+  let totBase = 0, totEwt = 0;
+
+  // Detail records — one period (no monthly breakdown)
+  rows.forEach((r, i) => {
+    const s = _qapSuppMap[r.suppKey] || {};
+    totBase += r.base; totEwt += r.ewt;
+    lines.push([
+      'D1', formType,
+      i + 1,
+      tin9(s.tin),
+      (s.branchCode || '0001'),
+      `"${(s.companyName || s.name || '').toUpperCase()}"`,
+      ln || (s.lastName || '').toUpperCase(),
+      fn || (s.firstName || '').toUpperCase(),
+      mn || (s.middleName || '').toUpperCase(),
+      ptype === 'annual' ? endStr : startStr, r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
+    ].join(','));
+  });
+
+  // Control record
+  lines.push([
+    'C1', formType, ourTin, '0000', endStr, csvNum(totBase), csvNum(totEwt),
+  ].join(','));
+
+  const content = lines.join('\r\n') + '\r\n';
+  const blob = new Blob([content], { type: 'text/plain' });
+  const periodTag = ptype === 'annual'
+    ? `${periodEnd.getFullYear()}`
+    : `${String(periodStart.getMonth()+1).padStart(2,'0')}${periodStart.getFullYear()}`;
   const fname = `${ourTin}0000QAP${periodTag}${formType}.DAT`;
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fname });
   a.click(); URL.revokeObjectURL(a.href);
