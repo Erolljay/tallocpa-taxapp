@@ -52,7 +52,7 @@ async function init2316Tab(biz, setup) {
 }
 
 async function generate2316() {
-  const { biz, setup, employees } = _form2316State;
+  const { biz, setup } = _form2316State;
   const outputEl = document.getElementById('form2316-output');
   const year = parseInt(document.getElementById('f2316-year').value, 10);
   const sel = document.getElementById('f2316-employee');
@@ -62,7 +62,11 @@ async function generate2316() {
   outputEl.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Computing annual compensation…</span></div>`;
 
   try {
-    const byEmployee = await buildPayrollYear(biz, year);
+    const [byEmployee, employees] = await Promise.all([
+      buildPayrollYear(biz, year),
+      loadEmployeesBIR(biz),
+    ]);
+    _form2316State.employees = employees;
     const empKeys = wantAll ? Object.keys(byEmployee) : selected.filter(k => byEmployee[k]);
 
     if (!empKeys.length) {
