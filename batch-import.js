@@ -209,9 +209,9 @@ function parseSaleRow(r, idx, cache) {
   const exempt     = num(5);
   const zeroRated  = num(6);
   const cwtAcctName = get(7);
-  const cwt        = num(8);
+  const cwt        = Math.abs(num(8));
   const wvAcctName  = get(9);
-  const wv         = num(10);
+  const wv         = Math.abs(num(10));
 
   const resolveAcct = (name, label) => {
     if (!name) { errors.push(`${label} account is blank — copy an Account Title from the Chart of Accounts sheet`); return null; }
@@ -279,7 +279,7 @@ function parsePurchaseRow(r, idx, cache) {
   const exempt      = num(8);
   const whtAcctName = get(9);
   const atcCode     = get(10);
-  const whtAmount   = num(11);
+  const whtAmount   = Math.abs(num(11));
 
   const resolveAcct = (name, label) => {
     if (!name) { errors.push(`${label} account is blank — copy an Account Title from the Chart of Accounts sheet`); return null; }
