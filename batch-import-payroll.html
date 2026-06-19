@@ -44,9 +44,10 @@
   <div class="alert alert-info" style="margin-bottom:14px;">
     ℹ️ This tool posts <strong>directly to Manager</strong> via its API — no manual upload needed. For each row:
     a missing Employee is auto-created (name only), then a Payslip is created using whichever payslip item the firm
-    has already assigned (under "Payslip items") to each BIR earnings/deduction/contribution category, then (for
-    rows marked "Paid Same Day") a Payment is created for the net pay. Review the row-by-row results after posting —
-    if a row fails, fix the source data and click "Post to Manager" again to retry just the failed rows.
+    has already assigned (under "Payslip items") to each BIR earnings/deduction/contribution category, then a Payment
+    is created for the net pay (all payroll is assumed paid the same day as the pay period end date). Review the
+    row-by-row results after posting — if a row fails, fix the source data and click "Post to Manager" again to
+    retry just the failed rows.
   </div>
 
   <div id="bi-output"></div>

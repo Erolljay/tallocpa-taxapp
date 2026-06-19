@@ -50,7 +50,8 @@ const BI_PAYROLL_TYPE_ENDPOINT = { earnings: 'payslip-earnings-item', deductions
 const BI_HEADERS = BI_IS_PAYROLL ? [
   'Pay Period End / Payment Date (YYYY-MM-DD)', 'Employee Name', 'Reference',
   ...BI_PAYROLL_COLS.map(c => c.header),
-  'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
+  'Payment Account (Cash/Bank)',
+  'Gross Pay (computed)', 'Total Deductions (computed)', 'Net Pay (computed)',
 ] : BI_IS_SALE ? [
   'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
   'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
@@ -70,7 +71,7 @@ const BI_SAMPLE_ROWS = BI_IS_PAYROLL ? [
     562.50, 450, 175,
     300,
     562.50, 450, 175,
-    'Yes', 13412.50, '2026-06-15', 'Cash on Hand'],
+    'Cash on Hand'],
 ] : BI_IS_SALE ? [
   ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
     5600, '', '',
@@ -146,9 +147,9 @@ function downloadTemplate() {
       '1. Fill in the "Batch Import" sheet below — one row per employee per pay period.',
       '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-15).',
       '3. Earnings/Deduction/Contribution columns map to whichever Manager payslip item the firm has already assigned to that BIR category under the app\'s "Payslip items" tab — leave a column blank if it does not apply to this payslip.',
-      '4. "Payment Account" column: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title. Net pay is settled against the firm\'s Salaries Payable / Employee Clearing Account automatically.',
-      '5. "Paid Same Day" — enter Yes only if net pay was disbursed in cash/bank on the same day; otherwise leave it as No.',
-      '6. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
+      '4. "Payment Account" column: pick a value from the dropdown (sourced from the "Payment Accounts" sheet) or type the exact cash/bank account title. All payroll is assumed paid the same day as the Pay Period End date entered in column 1 — net pay (earnings less deductions) is settled against the firm\'s Salaries Payable / Employee Clearing Account automatically.',
+      '5. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
+      '6. Use the "Withholding Tax Calculator" sheet (pick an employee, enter gross compensation and non-taxable deductions) to work out the "Withholding Tax" amount for that row, per the BIR monthly withholding tax table.',
       '7. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post.',
     ] : [
       '1. Fill in the "Batch Import" sheet below — one row per invoice.',
@@ -166,22 +167,83 @@ function downloadTemplate() {
 
     // Batch Import sheet
     const ws = wb.addWorksheet('Batch Import');
+    const headerRowIdx = BI_IS_PAYROLL ? 2 : 1;
+    const firstSampleRowIdx = headerRowIdx + 1;
+
+    const earnCount = BI_PAYROLL_COLS.filter(c => c.group === 'earnings').length;
+    const dedCount = BI_PAYROLL_COLS.filter(c => c.group === 'deductions').length;
+    const conCount = BI_PAYROLL_COLS.filter(c => c.group === 'contributions').length;
+
+    if (BI_IS_PAYROLL) {
+      // Group-label row above the headers, like a payroll register: Earnings / Deductions / Employer Contributions / Payment / Validation totals.
+      const groups = [
+        { label: '', span: 3 },
+        { label: 'EARNINGS', span: earnCount },
+        { label: 'DEDUCTIONS', span: dedCount },
+        { label: 'EMPLOYER CONTRIBUTIONS', span: conCount },
+        { label: 'PAYMENT', span: 1 },
+        { label: 'TOTALS (FOR VALIDATION)', span: 3 },
+      ];
+      const groupColors = { EARNINGS: 'FF2E7D32', DEDUCTIONS: 'FFB71C1C', 'EMPLOYER CONTRIBUTIONS': 'FF6A1B9A', PAYMENT: 'FF0D47A1', 'TOTALS (FOR VALIDATION)': 'FF455A64' };
+      const groupRow = ws.addRow([]);
+      let col = 1;
+      groups.forEach(g => {
+        if (g.label) {
+          ws.mergeCells(groupRow.number, col, groupRow.number, col + g.span - 1);
+          const cell = groupRow.getCell(col);
+          cell.value = g.label;
+          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: groupColors[g.label] } };
+        }
+        col += g.span;
+      });
+      groupRow.height = 20;
+    }
+
     ws.addRow(BI_HEADERS);
     BI_SAMPLE_ROWS.forEach(r => ws.addRow(r));
-    const headerRow = ws.getRow(1);
+    const headerRow = ws.getRow(headerRowIdx);
     headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BI_TEMPLATE_BRAND } };
     headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     headerRow.height = 32;
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.views = [{ state: 'frozen', ySplit: headerRowIdx }];
     BI_HEADERS.forEach((h, i) => { ws.getColumn(i + 1).width = Math.max(14, Math.min(28, h.length + 4)); });
-    ws.getRow(2).font = { italic: true, color: { argb: 'FF888888' } };
+    ws.getRow(firstSampleRowIdx).font = { italic: true, color: { argb: 'FF888888' } };
 
-    // Chart of Accounts sheet
-    const coa = wb.addWorksheet('Chart of Accounts');
+    // Payroll: per-row Gross Pay / Total Deductions / Net Pay formulas, for
+    // the bookkeeper to validate the amount actually received by the employee.
+    if (BI_IS_PAYROLL) {
+      const earnFirstCol0 = 3, earnLastCol0 = earnFirstCol0 + earnCount - 1;
+      const dedFirstCol0 = earnLastCol0 + 1, dedLastCol0 = dedFirstCol0 + dedCount - 1;
+      const grossPayCol0 = dedLastCol0 + conCount + 2; // +1 for Payment Account, +1 to land on Gross Pay
+      const earnRange = `${colLetter(earnFirstCol0 + 1)}%r:${colLetter(earnLastCol0 + 1)}%r`;
+      const dedRange = `${colLetter(dedFirstCol0 + 1)}%r:${colLetter(dedLastCol0 + 1)}%r`;
+      const grossLetter = colLetter(grossPayCol0 + 1);
+      const totalDedLetter = colLetter(grossPayCol0 + 2);
+      const netPayLetter = colLetter(grossPayCol0 + 3);
+      const LAST_DATA_ROW = 500;
+      for (let r = firstSampleRowIdx; r <= LAST_DATA_ROW; r++) {
+        ws.getCell(`${grossLetter}${r}`).value = { formula: `SUM(${earnRange.replace(/%r/g, r)})` };
+        ws.getCell(`${totalDedLetter}${r}`).value = { formula: `SUM(${dedRange.replace(/%r/g, r)})` };
+        ws.getCell(`${netPayLetter}${r}`).value = { formula: `${grossLetter}${r}-${totalDedLetter}${r}` };
+        ws.getCell(`${grossLetter}${r}`).numFmt = '#,##0.00';
+        ws.getCell(`${totalDedLetter}${r}`).numFmt = '#,##0.00';
+        ws.getCell(`${netPayLetter}${r}`).numFmt = '#,##0.00';
+      }
+    }
+
+    // Payroll: small "Payment Accounts" sheet (bank/cash accounts only — that's
+    // the only account column left now that net pay always settles against the
+    // firm's Salaries Payable / Employee Clearing Account automatically).
+    // Sales/Purchase: full Chart of Accounts sheet, since several account
+    // columns vary per business.
+    const coa = wb.addWorksheet(BI_IS_PAYROLL ? 'Payment Accounts' : 'Chart of Accounts');
     coa.getColumn(1).width = 40;
-    coa.addRow(['Account Title']).font = { bold: true };
-    const accountNames = cache.accountList.map(a => a.name).sort((a, b) => a.localeCompare(b));
+    coa.addRow([BI_IS_PAYROLL ? 'Cash/Bank Account' : 'Account Title']).font = { bold: true };
+    const accountNames = (BI_IS_PAYROLL ? cache.bankCashAccountList : cache.accountList)
+      .map(a => a.name).sort((a, b) => a.localeCompare(b));
     accountNames.forEach(n => coa.addRow([n]));
 
     // ATC Codes sheet (sales/purchase only — payroll has no ATC codes)
@@ -194,7 +256,7 @@ function downloadTemplate() {
     }
 
     // Dropdown validation on Account / ATC Code columns, sourced from the reference sheets
-    const coaRange = `'Chart of Accounts'!$A$2:$A$${Math.max(2, accountNames.length + 1)}`;
+    const coaRange = `'${BI_IS_PAYROLL ? 'Payment Accounts' : 'Chart of Accounts'}'!$A$2:$A$${Math.max(2, accountNames.length + 1)}`;
     const atcRange = `'ATC Codes'!$A$2:$A$${Math.max(2, atcCodes.length + 1)}`;
     const LAST_DATA_ROW = 500;
     BI_HEADERS.forEach((h, i) => {
@@ -202,7 +264,7 @@ function downloadTemplate() {
       const isAtcCol = /atc code/i.test(h);
       if (!isAccountCol && !isAtcCol) return;
       const letter = colLetter(i + 1);
-      for (let r = 2; r <= LAST_DATA_ROW; r++) {
+      for (let r = firstSampleRowIdx; r <= LAST_DATA_ROW; r++) {
         ws.getCell(`${letter}${r}`).dataValidation = {
           type: 'list',
           allowBlank: true,
@@ -214,6 +276,64 @@ function downloadTemplate() {
         };
       }
     });
+
+    // Payroll: Withholding Tax Calculator sheet — pick an employee, enter their
+    // monthly gross compensation and non-taxable deductions (SSS/PhilHealth/
+    // Pag-IBIG employee share, etc.), and it works out the monthly withholding
+    // tax per the BIR monthly withholding tax table, for reference only.
+    if (BI_IS_PAYROLL) {
+      const wht = wb.addWorksheet('Withholding Tax Calculator');
+      const whtHeaders = ['Employee Name', 'Monthly Gross Compensation', 'Non-Taxable Deductions (SSS/PhilHealth/Pag-IBIG, etc.)', 'Net Taxable Compensation', 'Monthly Withholding Tax'];
+      wht.addRow(['Monthly Withholding Tax Calculator (for reference — based on the BIR monthly withholding tax table)']).font = { bold: true, size: 13, color: { argb: BI_TEMPLATE_BRAND } };
+      wht.addRow([]);
+      const whtHeaderRow = wht.addRow(whtHeaders);
+      whtHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      whtHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BI_TEMPLATE_BRAND } };
+      whtHeaderRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      whtHeaderRow.height = 32;
+      whtHeaders.forEach((h, i) => { wht.getColumn(i + 1).width = Math.max(18, Math.min(40, h.length + 4)); });
+      wht.views = [{ state: 'frozen', ySplit: 3 }];
+
+      const WHT_FIRST_ROW = 4;
+      const WHT_LAST_ROW = 103;
+      for (let r = WHT_FIRST_ROW; r <= WHT_LAST_ROW; r++) {
+        wht.getCell(`D${r}`).value = { formula: `IF(B${r}="","",MAX(0,B${r}-C${r}))` };
+        wht.getCell(`E${r}`).value = { formula:
+          `IF(D${r}="","",` +
+          `IF(D${r}<=20833,0,` +
+          `IF(D${r}<=33333,(D${r}-20833)*0.15,` +
+          `IF(D${r}<=66667,1875+(D${r}-33333)*0.2,` +
+          `IF(D${r}<=166667,8875+(D${r}-66667)*0.25,` +
+          `IF(D${r}<=666667,33125+(D${r}-166667)*0.3,` +
+          `183125+(D${r}-666667)*0.35))))))` };
+        wht.getCell(`D${r}`).numFmt = '#,##0.00';
+        wht.getCell(`E${r}`).numFmt = '#,##0.00';
+        wht.getCell(`B${r}`).numFmt = '#,##0.00';
+        wht.getCell(`C${r}`).numFmt = '#,##0.00';
+      }
+      // Employee-name dropdown, sourced from the firm's actual employee list.
+      const empSheet = wb.addWorksheet('Employees');
+      empSheet.getColumn(1).width = 30;
+      empSheet.addRow(['Employee Name']).font = { bold: true };
+      cache.employeeNames.forEach(n => empSheet.addRow([n]));
+      const empRange = `'Employees'!$A$2:$A$${Math.max(2, cache.employeeNames.length + 1)}`;
+      for (let r = WHT_FIRST_ROW; r <= WHT_LAST_ROW; r++) {
+        wht.getCell(`A${r}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [empRange],
+          showErrorMessage: true,
+          errorStyle: 'warning',
+          errorTitle: 'Not in list',
+          error: 'Pick an employee from the dropdown, or type the exact name.',
+        };
+      }
+      wht.addRow([]);
+      const noteRow = wht.addRow(['Reference table: ₱0–20,833 0% · ₱20,834–33,333 15% of excess over ₱20,833 · ₱33,334–66,667 ₱1,875 + 20% of excess over ₱33,333 · ₱66,668–166,667 ₱8,875 + 25% of excess over ₱66,667 · ₱166,668–666,667 ₱33,125 + 30% of excess over ₱166,667 · Above ₱666,667 ₱183,125 + 35% of excess over ₱666,667.']);
+      noteRow.font = { italic: true, size: 9, color: { argb: 'FF888888' } };
+      noteRow.alignment = { wrapText: true };
+      wht.mergeCells(`A${noteRow.number}:E${noteRow.number}`);
+    }
 
     const buf = await wb.xlsx.writeBuffer();
     const blob = new Blob([buf], { type: 'application/octet-stream' });
@@ -267,6 +387,14 @@ async function buildLookupCache(biz) {
       const d = row?.item || row?.value || row || {};
       return { name: (d.name || d.Name || '').trim(), key: row?.key || row?.Key || d.key || '' };
     }).filter(a => a.name && a.key);
+    const bankCashAccountList = bankCashAccounts.map(row => {
+      const d = row?.item || row?.value || row || {};
+      return { name: (d.name || d.Name || '').trim(), key: row?.key || row?.Key || d.key || '' };
+    }).filter(a => a.name && a.key);
+    const employeeNames = employees.map(row => {
+      const d = row?.item || row?.value || row || {};
+      return (d.name || d.Name || '').trim();
+    }).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
     const itemsByGroup = { earnings: earningsItems, deductions: deductionItems, contributions: contributionItems };
     const itemNameByKey = new Map();
@@ -289,6 +417,8 @@ async function buildLookupCache(biz) {
       biz,
       accountKeyByName: keyMap(accounts),
       accountList,
+      bankCashAccountList,
+      employeeNames,
       partyKeyByName: keyMap(employees),
       itemKeyByCategory,
       itemNameByKey,
@@ -345,7 +475,7 @@ async function runValidation() {
     const wb = XLSX.read(buf, { type: 'array' });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    const dataRows = aoa.slice(1).filter(r => r.some(c => String(c).trim() !== ''));
+    const dataRows = aoa.slice(BI_IS_PAYROLL ? 2 : 1).filter(r => r.some(c => String(c).trim() !== ''));
 
     document.getElementById('bi-output').innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Checking against Manager accounts, tax codes &amp; contacts…</span></div>`;
     const cache = await buildLookupCache(_biBiz);
@@ -369,15 +499,12 @@ function parsePayrollRow(r, idx, cache) {
   const paidColStart = FIRST_COL + BI_PAYROLL_COLS.length;
 
   const row = {
-    rowNum: idx + 2,
+    rowNum: idx + 3,
     date: get(0),
     partyName: get(1),
     reference: get(2),
     lines: [],
-    paid: /^y/i.test(get(paidColStart)),
-    paidAmount: parseFloat(get(paidColStart + 1)) || 0,
-    paidDate: get(paidColStart + 2),
-    paymentAccount: get(paidColStart + 3),
+    paymentAccount: get(paidColStart),
   };
 
   let hasAmount = false;
@@ -404,12 +531,13 @@ function parsePayrollRow(r, idx, cache) {
 
   row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
 
-  if (row.paid) {
-    if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
-    if (!row.paidDate || isNaN(new Date(row.paidDate).getTime())) errors.push(`Paid = Yes but Paid Date is missing/invalid`);
-    if (!row.paymentAccount) errors.push(`Paid = Yes but Payment Account is blank`);
-    else checkAccount(errors, 'Payment', row.paymentAccount, cache);
-  }
+  row.paidAmount = row.lines.filter(l => l.group === 'earnings').reduce((s, l) => s + l.amount, 0)
+    - row.lines.filter(l => l.group === 'deductions').reduce((s, l) => s + l.amount, 0);
+  row.paidDate = row.date;
+  row.paid = true;
+
+  if (!row.paymentAccount) errors.push(`Payment Account is blank`);
+  else checkAccount(errors, 'Payment', row.paymentAccount, cache);
 
   row.errors = errors;
   row.status = errors.length ? 'error' : (row.partyMissing ? 'warn' : 'ok');
