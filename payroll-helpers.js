@@ -57,12 +57,6 @@ function computeAnnualTax(taxableIncome) {
   return bracket.fixed + (inc - bracket.from) * bracket.rate;
 }
 
-// Monthly withholding = annualized-taxable / 12 (simple, consistent approach
-// used for both 1601-C monthly remittance and 1604-C annual reconciliation).
-function computeMonthlyWithholding(monthlyTaxable) {
-  return computeAnnualTax(Number(monthlyTaxable || 0) * 12) / 12;
-}
-
 // ── PAYSLIP ITEM -> BIR CATEGORY MAP ──────────────────────────
 // Reads from our BIR payroll mapping blob (stored in business data record).
 // Manager's payslip item API does not support a reportingCategory field —
@@ -245,15 +239,17 @@ function computeEmployee1601C(months, taxStatus) {
     // Line 22 — Total Taxable Compensation (14 less 21)
     const line22 = line14 - line21;
 
-    // For NMWE: compute this month's withholding tax on taxable comp.
-    // If tax due is zero (taxable comp within ₱250k/yr equivalent), this
-    // employee's taxable comp for the month goes to Line 23 (excluded from
-    // withholding) per BIR Form 1601-C instructions.
-    let line23 = 0, monthlyTaxDue = 0;
-    if (!isMWE && line22 > 0) {
-      monthlyTaxDue = computeMonthlyWithholding(line22);
-      if (monthlyTaxDue <= 0) line23 = line22;
-    }
+    // For NMWE: classify based on whether tax was actually withheld this
+    // month per payroll (Line 25 / PH_CAT.WTC) — not a recomputed table
+    // projection. 1601-C is a monthly advance-withholding return; the
+    // actual annual tax due vs. withheld reconciliation happens at
+    // year-end annualization (1604-C), not here. If no withholding tax
+    // was posted on any payslip this month, the employee's taxable comp
+    // is excluded from withholding (Line 23) per BIR Form 1601-C
+    // instructions; otherwise it's fully subject to withholding (Line 24).
+    const actualWTC = b[PH_CAT.WTC] || 0;
+    let line23 = 0;
+    if (!isMWE && line22 > 0 && actualWTC <= 0) line23 = line22;
     // MWE: any residual taxable comp (e.g. thirteenth-month excess) is still
     // subject to withholding — not part of Line 23 (Line 23 is "for employees
     // OTHER THAN MWEs").
@@ -266,7 +262,7 @@ function computeEmployee1601C(months, taxStatus) {
 
     out.push({
       line14, line15, line16, line17, line18, line19, line20, line21, line22, line23, line24, line25,
-      thirteenthExcess, monthlyTaxDue,
+      thirteenthExcess,
     });
   }
   return out;
