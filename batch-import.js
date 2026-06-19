@@ -475,7 +475,11 @@ async function runValidation() {
     const wb = XLSX.read(buf, { type: 'array' });
     const ws = wb.Sheets['Batch Import'] || wb.Sheets[wb.SheetNames[0]];
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    const dataRows = aoa.slice(BI_IS_PAYROLL ? 2 : 1).filter(r => r.some(c => String(c).trim() !== ''));
+    // Only count rows where Date or Party Name (cols 0/1) are filled — the
+    // payroll sheet pre-fills Gross/Deductions/Net Pay formulas down to row
+    // 500 for convenience, which evaluate to 0 (non-blank) on still-empty rows.
+    const dataRows = aoa.slice(BI_IS_PAYROLL ? 2 : 1)
+      .filter(r => String(r[0] ?? '').trim() !== '' || String(r[1] ?? '').trim() !== '');
 
     document.getElementById('bi-output').innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><span>Checking against Manager accounts, tax codes &amp; contacts…</span></div>`;
     const cache = await buildLookupCache(_biBiz);
