@@ -53,7 +53,7 @@ const ANNUAL_TAX_TABLE = [
 
 function computeAnnualTax(taxableIncome) {
   const inc = Math.max(0, Number(taxableIncome) || 0);
-  const bracket = ANNUAL_TAX_TABLE.find(b => inc > b.from && inc <= b.to) || ANNUAL_TAX_TABLE[ANNUAL_TAX_TABLE.length - 1];
+  const bracket = ANNUAL_TAX_TABLE.find(b => inc >= b.from && inc <= b.to) || ANNUAL_TAX_TABLE[ANNUAL_TAX_TABLE.length - 1];
   return bracket.fixed + (inc - bracket.from) * bracket.rate;
 }
 
