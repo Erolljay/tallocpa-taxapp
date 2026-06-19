@@ -135,9 +135,10 @@ const MAPPING_GUIDS = {
 
 // ── BIR CUSTOM FIELD DEFINITIONS ─────────────────────────────
 const BIR_CF_NAMES = {
-  biz:   'BIR Business Data',
-  party: 'BIR Party Data',
-  emp:   'BIR Employee Data',
+  biz:     'BIR Business Data',
+  party:   'BIR Party Data',
+  emp:     'BIR Employee Data',
+  mapping: 'BIR Mapping Data',
 };
 
 // Known Manager custom-field placement GUIDs (confirmed via API).
@@ -148,6 +149,10 @@ const BIR_PLACEMENTS = {
     { Key: '6d2dc48d-2053-4e45-8330-285ebd431242', UniqueName: 'Supplier' },
   ],
   emp:   [{ Key: 'dadb7f95-a5dd-45c0-945d-6ad4ee28776e', UniqueName: 'Employee' }],
+  // Payroll mapping blob is stored on the dummy customer record (see
+  // BIZ_DATA_RECORD_NAME / getOrCreateBizDataRecord), so it needs a
+  // Customer-placed field, same as 'party'.
+  mapping: [{ Key: 'ec37c11e-2b67-49c6-8a58-6eccb7dd75ee', UniqueName: 'Customer' }],
 };
 
 const _birGuidCache = {};
@@ -173,16 +178,18 @@ async function ensureBIRFields(biz) {
   };
 
   const guids = {
-    biz:   findGuid(BIR_CF_NAMES.biz),
-    party: findGuid(BIR_CF_NAMES.party),
-    emp:   findGuid(BIR_CF_NAMES.emp),
+    biz:     findGuid(BIR_CF_NAMES.biz),
+    party:   findGuid(BIR_CF_NAMES.party),
+    emp:     findGuid(BIR_CF_NAMES.emp),
+    mapping: findGuid(BIR_CF_NAMES.mapping),
   };
 
   // Create any missing definitions
   const defs = [
-    { slot: 'biz',   name: BIR_CF_NAMES.biz,  placement: BIR_PLACEMENTS.biz.map(p => p.Key)   },
-    { slot: 'party', name: BIR_CF_NAMES.party, placement: BIR_PLACEMENTS.party.map(p => p.Key) },
-    { slot: 'emp',   name: BIR_CF_NAMES.emp,  placement: BIR_PLACEMENTS.emp.map(p => p.Key)   },
+    { slot: 'biz',     name: BIR_CF_NAMES.biz,     placement: BIR_PLACEMENTS.biz.map(p => p.Key)     },
+    { slot: 'party',   name: BIR_CF_NAMES.party,   placement: BIR_PLACEMENTS.party.map(p => p.Key)   },
+    { slot: 'emp',     name: BIR_CF_NAMES.emp,     placement: BIR_PLACEMENTS.emp.map(p => p.Key)     },
+    { slot: 'mapping', name: BIR_CF_NAMES.mapping, placement: BIR_PLACEMENTS.mapping.map(p => p.Key) },
   ];
   for (const def of defs) {
     if (guids[def.slot]) continue;

@@ -203,8 +203,14 @@ function computeEmployee1601C(months, taxStatus) {
   for (let m = 0; m < 12; m++) {
     const b = months[m] || {};
 
-    // Line 14 — Total Amount of Compensation (gross, all categories)
-    const allCats = Object.values(PH_CAT).filter(c => ![PH_CAT.WTC, PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE].includes(c));
+    // Line 14 — Total Amount of Compensation (gross, all earnings categories).
+    // Employer-share SSS/PHIC/HDMF contributions are excluded: they're a
+    // business expense, not employee compensation, and are never subject
+    // to withholding tax.
+    const allCats = Object.values(PH_CAT).filter(c => ![
+      PH_CAT.WTC, PH_CAT.SSS_EE, PH_CAT.PHIC_EE, PH_CAT.HDMF_EE,
+      PH_CAT.SSS_ER, PH_CAT.PHIC_ER, PH_CAT.HDMF_ER,
+    ].includes(c));
     const line14 = sumCats(b, allCats);
 
     // Line 19 — SSS/GSIS/PHIC/HDMF (employee share) — computed first since
