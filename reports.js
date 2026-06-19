@@ -89,7 +89,7 @@ const REPORTS = [
     id: 'f6a7b8c9-d0e1-4234-f567-a8b9c0d1e2f3',
     name: 'SAWT – Summary Alphalist of Withholding Taxes',
     file: 'sawt.html',
-    group: 'Expanded Withholding Tax',
+    group: 'Income Tax',
     req: 'expanded',
     phase: 2,
     available: false,
