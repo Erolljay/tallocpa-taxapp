@@ -115,6 +115,11 @@
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
     });
+    const deepLinkTab = location.hash.replace('#', '');
+    if (deepLinkTab && document.getElementById(`tab-${deepLinkTab}`)) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === deepLinkTab));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${deepLinkTab}`));
+    }
   });
 </script>
 </body>

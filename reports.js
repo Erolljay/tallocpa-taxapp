@@ -132,16 +132,16 @@ const REPORTS = [
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: false,
+    available: true,
   },
   {
     id: 'b8c9d0e1-f2a3-4456-b789-c0d1e2f3a4b5',
     name: 'BIR Form 2316 – Certificate of Compensation',
-    file: '2316.html',
+    file: 'alphalist.html#2316',
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: false,
+    available: true,
   },
   {
     id: 'c9d0e1f2-a3b4-4567-c890-d1e2f3a4b5c6',
@@ -150,7 +150,7 @@ const REPORTS = [
     group: 'Compensation (Payroll)',
     req: 'compensation',
     phase: 2,
-    available: false,
+    available: true,
   },
 
   // ── INCOME TAX – CORPORATION ─────────────────────────────────
