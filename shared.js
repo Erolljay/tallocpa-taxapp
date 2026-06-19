@@ -253,6 +253,33 @@ function buildBIRCustomFields(existingRecord, guid, birData) {
   return Object.assign({}, existing2, { strings });
 }
 
+// Read/save payroll category mapping { itemKey -> birCategoryId }
+// Reads ALL customFields2 strings and collects entries whose values start with
+// 'ph-bir-' — this catches data saved under any GUID from any session.
+async function getPayrollMapping(biz) {
+  const bizRec = await getOrCreateBizDataRecord(biz);
+  const strings = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
+  const merged = {};
+  for (const raw of Object.values(strings)) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'string' && v.startsWith('ph-bir-')) merged[k] = v;
+        }
+      }
+    } catch { /* skip non-JSON or invalid entries */ }
+  }
+  return merged;
+}
+
+async function savePayrollMapping(biz, mapping) {
+  const guids = await ensureBIRFields(biz);
+  const targetGuid = guids && guids.mapping;
+  if (!targetGuid) throw new Error('BIR Mapping Data custom field not available');
+  return saveBizDataRecord(biz, targetGuid, mapping);
+}
+
 // Load business-details from Manager
 async function loadBizDetails(biz) {
   const model = await apiRequest('GET', `/api4/business-details?business=${encodeURIComponent(biz)}`);
@@ -543,4 +570,27 @@ function returnLine(num, label, amount, bold = false, cls = '') {
     <div class="return-line-label" style="${bold?'font-weight:700;':''}">${label}</div>
     <div class="return-line-amt ${cls}">₱ ${fmt(amount)}</div>
   </div>`;
+}
+
+// ── INCOME TAX REPORT TABS ───────────────────────────────────
+// Wraps the three standard income-tax tab panels (Profit and Loss
+// Statement, BIR Mapping of COA, BIR Form) into a tab bar + panel
+// set. `tabs` is [{ key, label, html }] in display order. Call
+// bindIncomeTaxTabs(el) once after setting el.innerHTML to wire up
+// the click-to-switch behavior.
+function renderIncomeTaxTabs(tabs, activeKey) {
+  const active = activeKey || (tabs[0] && tabs[0].key);
+  const buttons = tabs.map(t => `<button type="button" class="tax-tab-btn${t.key === active ? ' active' : ''}" data-tab="${t.key}">${escHtml(t.label)}</button>`).join('');
+  const panels = tabs.map(t => `<div class="tax-tab-panel" data-tab="${t.key}" style="display:${t.key === active ? 'block' : 'none'};">${t.html}</div>`).join('');
+  return `<div class="tax-tab-bar no-print">${buttons}</div>${panels}`;
+}
+
+function bindIncomeTaxTabs(el) {
+  el.querySelectorAll('.tax-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.tab;
+      el.querySelectorAll('.tax-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      el.querySelectorAll('.tax-tab-panel').forEach(p => { p.style.display = (p.dataset.tab === key) ? 'block' : 'none'; });
+    });
+  });
 }
