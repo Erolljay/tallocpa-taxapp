@@ -15,6 +15,7 @@
 const BI_IS_PAYROLL = (typeof BI_TXN_TYPE !== 'undefined' ? BI_TXN_TYPE : 'Sale') === 'Payroll';
 const BI_IS_SALE = !BI_IS_PAYROLL && (typeof BI_TXN_TYPE !== 'undefined' ? BI_TXN_TYPE : 'Sale') === 'Sale';
 const BI_PARTY_LABEL = BI_IS_PAYROLL ? 'Employee' : (BI_IS_SALE ? 'Customer' : 'Supplier');
+const BI_SALARIES_PAYABLE_ACCOUNT = '650a36fe-801f-4031-8d5b-ab422d061fca';
 
 // ── PAYROLL: fixed BIR earnings/deduction/contribution categories, each
 // column resolves (via the existing Payslip Items mapping) to whichever
@@ -49,7 +50,7 @@ const BI_PAYROLL_TYPE_ENDPOINT = { earnings: 'payslip-earnings-item', deductions
 const BI_HEADERS = BI_IS_PAYROLL ? [
   'Pay Period End / Payment Date (YYYY-MM-DD)', 'Employee Name', 'Reference',
   ...BI_PAYROLL_COLS.map(c => c.header),
-  'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Net Pay Clearing Account', 'Payment Account (Cash/Bank)',
+  'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
 ] : BI_IS_SALE ? [
   'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
   'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
@@ -69,7 +70,7 @@ const BI_SAMPLE_ROWS = BI_IS_PAYROLL ? [
     562.50, 450, 175,
     300,
     562.50, 450, 175,
-    'Yes', 13412.50, '2026-06-15', 'Salaries Payable', 'Cash on Hand'],
+    'Yes', 13412.50, '2026-06-15', 'Cash on Hand'],
 ] : BI_IS_SALE ? [
   ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
     5600, '', '',
@@ -145,7 +146,7 @@ function downloadTemplate() {
       '1. Fill in the "Batch Import" sheet below — one row per employee per pay period.',
       '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-15).',
       '3. Earnings/Deduction/Contribution columns map to whichever Manager payslip item the firm has already assigned to that BIR category under the app\'s "Payslip items" tab — leave a column blank if it does not apply to this payslip.',
-      '4. "Net Pay Clearing Account" / "Payment Account" columns: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title.',
+      '4. "Payment Account" column: pick a value from the dropdown (sourced from the "Chart of Accounts" sheet) or type the exact account title. Net pay is settled against the firm\'s Salaries Payable / Employee Clearing Account automatically.',
       '5. "Paid Same Day" — enter Yes only if net pay was disbursed in cash/bank on the same day; otherwise leave it as No.',
       '6. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
       '7. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post.',
@@ -183,12 +184,14 @@ function downloadTemplate() {
     const accountNames = cache.accountList.map(a => a.name).sort((a, b) => a.localeCompare(b));
     accountNames.forEach(n => coa.addRow([n]));
 
-    // ATC Codes sheet
-    const atc = wb.addWorksheet('ATC Codes');
-    atc.getColumn(1).width = 50;
-    atc.addRow(['ATC Code (Tax Code Name)']).font = { bold: true };
-    const atcCodes = cache.taxCodes.filter(tc => /^W[ICVB]\d/.test(tc.name)).map(tc => tc.name).sort((a, b) => a.localeCompare(b));
-    atcCodes.forEach(n => atc.addRow([n]));
+    // ATC Codes sheet (sales/purchase only — payroll has no ATC codes)
+    const atcCodes = BI_IS_PAYROLL ? [] : cache.taxCodes.filter(tc => /^W[ICVB]\d/.test(tc.name)).map(tc => tc.name).sort((a, b) => a.localeCompare(b));
+    if (!BI_IS_PAYROLL) {
+      const atc = wb.addWorksheet('ATC Codes');
+      atc.getColumn(1).width = 50;
+      atc.addRow(['ATC Code (Tax Code Name)']).font = { bold: true };
+      atcCodes.forEach(n => atc.addRow([n]));
+    }
 
     // Dropdown validation on Account / ATC Code columns, sourced from the reference sheets
     const coaRange = `'Chart of Accounts'!$A$2:$A$${Math.max(2, accountNames.length + 1)}`;
@@ -374,8 +377,7 @@ function parsePayrollRow(r, idx, cache) {
     paid: /^y/i.test(get(paidColStart)),
     paidAmount: parseFloat(get(paidColStart + 1)) || 0,
     paidDate: get(paidColStart + 2),
-    netPayAccount: get(paidColStart + 3),
-    paymentAccount: get(paidColStart + 4),
+    paymentAccount: get(paidColStart + 3),
   };
 
   let hasAmount = false;
@@ -405,8 +407,6 @@ function parsePayrollRow(r, idx, cache) {
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
     if (!row.paidDate || isNaN(new Date(row.paidDate).getTime())) errors.push(`Paid = Yes but Paid Date is missing/invalid`);
-    if (!row.netPayAccount) errors.push(`Paid = Yes but Net Pay Clearing Account is blank`);
-    else checkAccount(errors, 'Net Pay Clearing', row.netPayAccount, cache);
     if (!row.paymentAccount) errors.push(`Paid = Yes but Payment Account is blank`);
     else checkAccount(errors, 'Payment', row.paymentAccount, cache);
   }
@@ -646,30 +646,27 @@ async function ensureParty(name, cache) {
 async function postPayrollRow(row, cache) {
   const empKey = await ensureParty(row.partyName, cache);
 
-  const earningsLines = row.lines.filter(l => l.group === 'earnings')
-    .map(l => ({ earningsItem: l.itemKey, earningsAmount: l.amount }));
-  const deductionLines = row.lines.filter(l => l.group === 'deductions')
-    .map(l => ({ deductionItem: l.itemKey, deductionAmount: l.amount }));
-  const contributionLines = row.lines.filter(l => l.group === 'contributions')
-    .map(l => ({ contributionItem: l.itemKey, contributionAmount: l.amount }));
+  const earnings = row.lines.filter(l => l.group === 'earnings')
+    .map(l => ({ item: l.itemKey, units: 1, unitPrice: l.amount, earningsAmount: null }));
+  const deductions = row.lines.filter(l => l.group === 'deductions')
+    .map(l => ({ item: l.itemKey, deductionAmount: l.amount }));
+  const contributions = row.lines.filter(l => l.group === 'contributions')
+    .map(l => ({ item: l.itemKey, contributionAmount: l.amount }));
 
   const payslipKey = crypto.randomUUID();
   await apiRequest('PUT', '/api4/payslip', {
     key: payslipKey,
     value: {
       employee: empKey,
-      paymentDate: row.date,
-      payPeriodStart: row.date,
-      payPeriodEnd: row.date,
+      date: row.date,
       reference: row.reference || null,
-      earningsLines,
-      deductionLines,
-      contributionLines,
+      earnings,
+      deductions,
+      contributions,
     },
   });
 
   if (row.paid) {
-    const netPayAcctKey = cache.accountKeyByName.get(row.netPayAccount.trim().toLowerCase()) || null;
     const paymentAcctKey = cache.accountKeyByName.get(row.paymentAccount.trim().toLowerCase()) || null;
     await apiRequest('PUT', '/api4/payment', {
       key: crypto.randomUUID(),
@@ -678,7 +675,12 @@ async function postPayrollRow(row, cache) {
         reference: row.reference || null,
         paidFrom: paymentAcctKey,
         description: `Net pay — ${row.partyName}`,
-        lines: [{ account: netPayAcctKey, amount: row.paidAmount }],
+        lines: [{
+          account: BI_SALARIES_PAYABLE_ACCOUNT,
+          employee: empKey,
+          lineDescription: `Net pay — ${row.partyName}`,
+          amount: row.paidAmount,
+        }],
       },
     });
   }
