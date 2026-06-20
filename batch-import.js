@@ -504,7 +504,7 @@ function parsePayrollRow(r, idx, cache) {
 
   const row = {
     rowNum: idx + 3,
-    date: get(0),
+    date: parseBiDate(r[0]),
     partyName: get(1),
     reference: get(2),
     lines: [],
@@ -555,21 +555,40 @@ function checkAccount(errors, label, acctName, cache) {
   }
 }
 
+// Converts a raw cell value into a "YYYY-MM-DD" string. Handles plain text
+// dates, JS Date objects, and Excel date serial numbers — Excel silently
+// retypes a text date column as a numeric Date cell when the file is
+// opened/saved in Excel, which SheetJS then returns as a raw serial number.
+function parseBiDate(v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (v instanceof Date) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    const parsed = XLSX.SSF.parse_date_code(v);
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+    }
+  }
+  return String(v).trim();
+}
+
 function parseSaleRow(r, idx, cache) {
   const errors = [];
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
   const num = i => parseFloat(get(i)) || 0;
+  const getDate = i => parseBiDate(r[i]);
 
   const row = {
     rowNum: idx + 2,
-    date: get(0),
+    date: getDate(0),
     partyName: get(1),
     reference: get(2),
     amountsIncludeTax: true,
     lines: [],
     paid: /^y/i.test(get(13)),
     paidAmount: parseFloat(get(14)) || 0,
-    paidDate: get(15),
+    paidDate: getDate(15),
     paymentAccount: get(16),
   };
 
@@ -635,17 +654,18 @@ function parsePurchaseRow(r, idx, cache) {
   const errors = [];
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
   const num = i => parseFloat(get(i)) || 0;
+  const getDate = i => parseBiDate(r[i]);
 
   const row = {
     rowNum: idx + 2,
-    date: get(0),
+    date: getDate(0),
     partyName: get(1),
     reference: get(2),
     amountsIncludeTax: true,
     lines: [],
     paid: /^y/i.test(get(12)),
     paidAmount: parseFloat(get(13)) || 0,
-    paidDate: get(14),
+    paidDate: getDate(14),
     paymentAccount: get(15),
   };
 
