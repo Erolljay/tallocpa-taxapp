@@ -698,9 +698,20 @@
     contributions: 'payslip-contribution-item',
   };
 
+  // Payslip item -> Manager account field name(s). Earnings post to one
+  // expense account; deductions redirect to one liability account; employer
+  // contributions need BOTH (employer's cost + amount payable to the agency).
+  var PAYSLIP_ACCOUNT_FIELDS = {
+    earnings:      { expense: 'account' },
+    deductions:    { liability: 'account' },
+    contributions: { expense: 'expenseAccount', liability: 'liabilityAccount' },
+  };
+
   function mountPayslipItemsSection(container) {
     var caches = {};
     var payrollMap = {};
+    var coa = {};
+    var accountLinks = {};
 
     async function refresh() {
       var business = biz();
@@ -709,14 +720,20 @@
       try {
         var results = await Promise.all(
           PAYSLIP_ITEM_TYPES.map(function(t) { return fetchAllBatch('/api4/' + t.endpoint + '-batch', business); })
-            .concat([getPayrollMapping(business)])
+            .concat([
+              getPayrollMapping(business),
+              (typeof loadChartOfAccounts === 'function') ? loadChartOfAccounts(business, true) : Promise.resolve({}),
+              (typeof getAccountLinkMapping === 'function') ? getAccountLinkMapping(business) : Promise.resolve({}),
+            ])
         );
         PAYSLIP_ITEM_TYPES.forEach(function(t, i) {
           caches[t.key] = (results[i] || []).map(function(it) {
             return { key: it.key, value: it.item || {}, displayName: (it.item || {}).name || (it.item || {}).Name || it.key };
           }).sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
         });
-        payrollMap = results[PAYSLIP_ITEM_TYPES.length] || {};
+        payrollMap   = results[PAYSLIP_ITEM_TYPES.length] || {};
+        coa          = results[PAYSLIP_ITEM_TYPES.length + 1] || {};
+        accountLinks = results[PAYSLIP_ITEM_TYPES.length + 2] || {};
       } catch(err) {
         container.innerHTML = '<div class="alert alert-error">Failed: ' + esc(err.message) + '</div>';
         return;
@@ -749,10 +766,25 @@
               '<option value="">— pick a name —</option>' + suggestOpts + '<option value="__custom__">✏️ Custom name…</option>' +
             '</select>' +
             '<input id="psi-name-custom" type="text" placeholder="Enter item name" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;width:220px;margin-top:5px;display:none;" /></div>' +
+          '<div id="psi-account-fields" style="display:flex;gap:10px;"></div>' +
           '<button class="btn btn-primary" onclick="window._psiCreate()" style="white-space:nowrap;align-self:flex-end;padding:6px 16px;">✦ Create</button>' +
         '</div>' +
         '<div id="psi-msg" style="margin-top:7px;font-size:11px;min-height:14px;"></div>' +
       '</div>';
+    }
+
+    function accountFieldHtml(label, id, isPnL) {
+      var opts = (typeof COA !== 'undefined') ? COA.accountOptionsHtml(coa, { isPnL: isPnL }) : '<option value="">-- none --</option>';
+      return '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">' + esc(label) + '</label>' +
+        '<select id="' + id + '" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;min-width:200px;">' + opts + '</select></div>';
+    }
+
+    function renderCreatorAccountFields(typeKey) {
+      var fields = PAYSLIP_ACCOUNT_FIELDS[typeKey] || {};
+      var html = '';
+      if (fields.expense) html += accountFieldHtml('Expense Account', 'psi-acct-expense', true);
+      if (fields.liability) html += accountFieldHtml('Liability Account', 'psi-acct-liability', false);
+      document.getElementById('psi-account-fields').innerHTML = html;
     }
 
     function renderPayslipTables() {
@@ -769,8 +801,10 @@
         document.getElementById('psi-cat').innerHTML = type.categories.map(function(c) {
           return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>';
         }).join('');
+        renderCreatorAccountFields(typeKey);
         window._psiOnCat();
       };
+      renderCreatorAccountFields(PAYSLIP_ITEM_TYPES[0].key);
       window._psiOnCat = function() {
         var cat = document.getElementById('psi-cat').value;
         var suggestions = PAYSLIP_SUGGESTED_NAMES[cat] || [];
@@ -804,12 +838,25 @@
           var baseValue = template ? buildSafeValue(template.value, {}) : { inactive: false };
           var createValue = Object.assign({}, baseValue, { name: name });
           delete createValue.reportingCategory;
+
+          var fields = PAYSLIP_ACCOUNT_FIELDS[typeKey] || {};
+          var expenseGuid = fields.expense ? (document.getElementById('psi-acct-expense') || {}).value : '';
+          var liabilityGuid = fields.liability ? (document.getElementById('psi-acct-liability') || {}).value : '';
+          if (fields.expense && expenseGuid) createValue[fields.expense] = expenseGuid;
+          if (fields.liability && liabilityGuid) createValue[fields.liability] = liabilityGuid;
+
           var created = await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: createValue });
 
           // Map the new item immediately in our blob
           if (created && created.key && cat) {
             payrollMap[created.key] = cat;
             await savePayrollMapping(biz(), payrollMap);
+          }
+          if (created && created.key) {
+            var linkChanged = false;
+            if (fields.expense && expenseGuid) { accountLinks['psi:' + created.key + ':expense'] = expenseGuid; linkChanged = true; }
+            if (fields.liability && liabilityGuid) { accountLinks['psi:' + created.key + ':liability'] = liabilityGuid; linkChanged = true; }
+            if (linkChanged) await saveAccountLinkMapping(biz(), accountLinks);
           }
 
           await refresh();
@@ -826,20 +873,38 @@
       if (!items.length) return heading + '<p class="muted">No ' + esc(type.label.toLowerCase()) + ' items in this business.</p>';
       var catOpts = '<option value="">-- none --</option>' +
         type.categories.map(function(c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('');
+      var fields = PAYSLIP_ACCOUNT_FIELDS[type.key] || {};
+      var hasAccountCols = !!(fields.expense || fields.liability);
       var rows = items.map(function(it, idx) {
         var current = payrollMap[it.key] || '';
         var opts = catOpts.replace('value="' + esc(current) + '"', 'value="' + esc(current) + '" selected');
+        var expenseCell = '';
+        var liabilityCell = '';
+        if (fields.expense) {
+          var curExpense = accountLinks['psi:' + it.key + ':expense'] || '';
+          var expOpts = (typeof COA !== 'undefined') ? COA.accountOptionsHtml(coa, { isPnL: true, selected: curExpense }) : '<option value="">-- none --</option>';
+          expenseCell = '<td style="padding:6px 8px;"><select data-role="acct-expense" style="width:100%;font-size:12px;">' + expOpts + '</select></td>';
+        }
+        if (fields.liability) {
+          var curLiability = accountLinks['psi:' + it.key + ':liability'] || '';
+          var liabOpts = (typeof COA !== 'undefined') ? COA.accountOptionsHtml(coa, { isPnL: false, selected: curLiability }) : '<option value="">-- none --</option>';
+          liabilityCell = '<td style="padding:6px 8px;"><select data-role="acct-liability" style="width:100%;font-size:12px;">' + liabOpts + '</select></td>';
+        }
         return '<tr data-type="' + type.key + '" data-key="' + esc(it.key) + '" data-idx="' + idx + '" style="border-bottom:.5px solid #f3f4f6;">' +
           '<td style="padding:6px 8px;font-size:12px;font-weight:500;">' + esc(it.displayName) + '</td>' +
           '<td style="padding:6px 8px;"><select data-role="cat" style="width:100%;font-size:12px;">' + opts + '</select></td>' +
+          expenseCell + liabilityCell +
           '<td style="padding:6px 8px;"><button class="btn btn-primary btn-sm" data-action="save-payslip-item" style="font-size:11px;">Save</button></td>' +
           '</tr>';
       }).join('');
+      var expenseHeader = fields.expense ? '<th style="padding:5px 8px;font-weight:500;">Expense Account</th>' : '';
+      var liabilityHeader = fields.liability ? '<th style="padding:5px 8px;font-weight:500;">Liability Account</th>' : '';
       return heading +
         '<div style="overflow-x:auto;margin-bottom:8px;"><table style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;color:#9ca3af;">' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Item</th>' +
         '<th style="padding:5px 8px;font-weight:500;">BIR Reporting Category</th>' +
+        expenseHeader + liabilityHeader +
         '<th></th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div>';
     }
@@ -848,9 +913,15 @@
       var btn = e.currentTarget;
       var row = btn.closest('tr');
       var key = row.dataset.key;
+      var typeKey = row.dataset.type;
       var business = biz();
       if (!business || !key) return;
       var newCat = row.querySelector('[data-role="cat"]').value || null;
+      var fields = PAYSLIP_ACCOUNT_FIELDS[typeKey] || {};
+      var expenseSel = row.querySelector('[data-role="acct-expense"]');
+      var liabilitySel = row.querySelector('[data-role="acct-liability"]');
+      var expenseGuid = expenseSel ? expenseSel.value : '';
+      var liabilityGuid = liabilitySel ? liabilitySel.value : '';
       try {
         if (newCat) {
           payrollMap[key] = newCat;
@@ -858,6 +929,28 @@
           delete payrollMap[key];
         }
         await savePayrollMapping(business, payrollMap);
+
+        if (fields.expense || fields.liability) {
+          var type = PAYSLIP_ITEM_TYPES.find(function(t) { return t.key === typeKey; });
+          var item = (caches[typeKey] || []).find(function(it) { return it.key === key; });
+          if (type && item) {
+            var overrides = {};
+            if (fields.expense) overrides[fields.expense] = expenseGuid || null;
+            if (fields.liability) overrides[fields.liability] = liabilityGuid || null;
+            var putValue = buildSafeValue(item.value, overrides);
+            await apiRequest('PUT', '/api4/' + type.endpoint, { business: business, key: key, value: putValue });
+          }
+          if (fields.expense) {
+            if (expenseGuid) accountLinks['psi:' + key + ':expense'] = expenseGuid;
+            else delete accountLinks['psi:' + key + ':expense'];
+          }
+          if (fields.liability) {
+            if (liabilityGuid) accountLinks['psi:' + key + ':liability'] = liabilityGuid;
+            else delete accountLinks['psi:' + key + ':liability'];
+          }
+          await saveAccountLinkMapping(business, accountLinks);
+        }
+
         flash(btn, true);
       } catch(err) {
         console.error(err);

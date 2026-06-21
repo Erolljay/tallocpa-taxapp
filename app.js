@@ -38,12 +38,13 @@ var businessSelect = document.getElementById('business');
 
 businessSelect && businessSelect.addEventListener('change', function() {
   setupTabLoaded = false; // reset so tax codes reload for new business
+  coaTabLoaded = false;
   resetCF();
   var active = document.querySelector('.tab.active');
   if (active) activateTab(active.dataset.view);
   // Explicitly refresh the active CF section after mount to ensure data loads
   var view = active ? active.dataset.view : '';
-  var sectionMap = { business: 'business', customers: 'customers', suppliers: 'suppliers', employees: 'employees', 'payslip-items': 'payslipItems' };
+  var sectionMap = { business: 'business', 'payslip-items': 'payslipItems' };
   var section = sectionMap[view];
   if (section && cfControllers[section] && typeof cfControllers[section].refresh === 'function') {
     cfControllers[section].refresh();
@@ -57,6 +58,8 @@ var allViews = document.querySelectorAll('[id$="-view"]');
 var cfLoaded = {};
 var cfControllers = {};
 var setupTabLoaded = false;
+var coaTabLoaded = false;
+var coaController = null;
 
 function activateTab(view) {
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === view); });
@@ -67,15 +70,21 @@ function activateTab(view) {
   if (view === 'setup' && !setupTabLoaded && biz) { setupTabLoaded = true; loadTaxCodesTab(); }
   if (view === 'batch-import-setup') renderBatchImportSetupTab(biz);
   if (view === 'business')      lazyMountCF('business',     biz);
-  if (view === 'customers')     lazyMountCF('customers',    biz);
-  if (view === 'suppliers')     lazyMountCF('suppliers',    biz);
-  if (view === 'employees')     lazyMountCF('employees',    biz);
   if (view === 'payslip-items') lazyMountCF('payslipItems', biz);
+  if (view === 'coa')           lazyMountCoa(biz);
 }
 
 document.querySelectorAll('.tab').forEach(function(t){
   t.addEventListener('click', function(){ activateTab(t.dataset.view); });
 });
+
+function lazyMountCoa(biz) {
+  if (!biz || typeof COA === 'undefined') return;
+  if (coaTabLoaded) return;
+  coaTabLoaded = true;
+  coaController = COA.mount(document.getElementById('coa-view'));
+  coaController.refresh();
+}
 
 function lazyMountCF(section, biz) {
   if (!biz || typeof CF === 'undefined') return;
@@ -86,15 +95,6 @@ function lazyMountCF(section, biz) {
   if (section === 'business') {
     cfControllers.business = CF.mountBusiness(document.getElementById('business-view'));
     cfControllers.business.refresh();
-  } else if (section === 'customers') {
-    cfControllers.customers = CF.mountParty(document.getElementById('customers-view'), 'customer');
-    cfControllers.customers.refresh();
-  } else if (section === 'suppliers') {
-    cfControllers.suppliers = CF.mountParty(document.getElementById('suppliers-view'), 'supplier');
-    cfControllers.suppliers.refresh();
-  } else if (section === 'employees') {
-    cfControllers.employees = CF.mountEmployees(document.getElementById('employees-view'));
-    cfControllers.employees.refresh();
   } else if (section === 'payslipItems') {
     cfControllers.payslipItems = CF.mountPayslipItems(document.getElementById('payslip-items-view'));
     cfControllers.payslipItems.refresh();
@@ -104,7 +104,8 @@ function lazyMountCF(section, biz) {
 function resetCF() {
   Object.keys(cfLoaded).forEach(function(k){ delete cfLoaded[k]; });
   cfControllers = {};
-  ['business-view','customers-view','suppliers-view','employees-view','payslip-items-view'].forEach(function(id){
+  coaController = null;
+  ['business-view','coa-view','payslip-items-view'].forEach(function(id){
     var el = document.getElementById(id);
     if (el) el.innerHTML = '';
   });
@@ -258,9 +259,20 @@ async function onBatchImportAction(btn, biz) {
 
 // ?? TAX CODES TAB ????????????????????????????????????????????
 var _taxCodes = [];
+var _tcCoa = {};        // accountGuid -> {key,name,group,isProfitAndLossAccount}
+var _tcAccountLinks = {}; // 'tc:<Name>' -> accountGuid
 
 var refreshBtn = document.getElementById('refreshSetup');
 if (refreshBtn) refreshBtn.addEventListener('click', loadTaxCodesTab);
+
+// VAT tax codes that can be linked to a specific GL account (Manager otherwise
+// posts these to its generic Tax Payable/Receivable control accounts).
+var VAT_ACCOUNT_LINKABLE = [
+  'Output VAT 12%',
+  'Input VAT 12% (Capital Goods)',
+  'Input VAT 12% (Other Goods)',
+  'Input VAT 12% (Services)',
+];
 
 async function loadTaxCodesTab() {
   var biz = currentBiz();
@@ -268,8 +280,15 @@ async function loadTaxCodesTab() {
   if (!biz) { out.innerHTML = '<div class="error">Please select a business.</div>'; return; }
   out.innerHTML = '<div class="status">Loading tax codes...</div>';
   try {
-    var res = await apiRequest('GET', '/api4/tax-code-batch?business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200');
+    var results = await Promise.all([
+      apiRequest('GET', '/api4/tax-code-batch?business='+encodeURIComponent(biz)+'&Skip=0&PageSize=200'),
+      (typeof loadChartOfAccounts === 'function') ? loadChartOfAccounts(biz, true) : Promise.resolve({}),
+      (typeof getAccountLinkMapping === 'function') ? getAccountLinkMapping(biz) : Promise.resolve({}),
+    ]);
+    var res = results[0];
     _taxCodes = (res && res.items ? res.items : []).map(function(it){ return { key: it.key, value: it.item || {} }; });
+    _tcCoa = results[1] || {};
+    _tcAccountLinks = results[2] || {};
   } catch(err) {
     out.innerHTML = '<div class="error">Failed to load: ' + escHtml(err.message) + '</div>';
     return;
@@ -318,11 +337,13 @@ function renderTaxCodesOutput(biz, out) {
     }
     html += '</div>';
 
+    var hasAccountCol = grp.key === 'VAT';
     html += '<table style="width:100%;border-collapse:collapse;">';
     html += '<thead><tr style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">';
     html += '<th style="text-align:left;padding:4px 8px;font-weight:500;">Tax Code Name</th>';
     html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">BIR Rate</th>';
     html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">Manager Rate</th>';
+    if (hasAccountCol) html += '<th style="padding:4px 8px;font-weight:500;text-align:left;">GL Account</th>';
     html += '<th style="padding:4px 8px;font-weight:500;text-align:center;">Status</th>';
     html += '<th style="padding:4px 8px;"></th>';
     html += '</tr></thead><tbody>';
@@ -337,10 +358,23 @@ function renderTaxCodesOutput(biz, out) {
       var action = match
         ? '<span style="font-size:11px;color:#9ca3af;">—</span>'
         : '<button class="secondary" data-action="create-tc" data-name="'+escHtml(tpl.Name)+'" data-mgr-rate="'+tpl.managerRate+'" data-group="'+escHtml(tpl.group)+'" style="font-size:11px;padding:3px 10px;">Create</button>';
-      html += '<tr style="border-bottom:.5px solid #f3f4f6;">';
+      html += '<tr style="border-bottom:.5px solid #f3f4f6;" data-tc-name="'+escHtml(tpl.Name)+'" data-tc-mgr-rate="'+tpl.managerRate+'" data-tc-group="'+escHtml(tpl.group)+'" data-tc-key="'+escHtml(match ? match.key : '')+'">';
       html += '<td style="padding:6px 8px;font-size:12px;font-weight:500;">'+escHtml(tpl.Name)+'</td>';
       html += '<td style="padding:6px 8px;font-size:12px;text-align:center;color:#374151;">'+birRateStr+'</td>';
       html += '<td style="padding:6px 8px;font-size:12px;text-align:center;color:'+(tpl.managerRate===100?'#b45309':'#374151')+';">'+mgrRateStr+'</td>';
+      if (hasAccountCol) {
+        if (VAT_ACCOUNT_LINKABLE.indexOf(tpl.Name) !== -1) {
+          var linkKey = 'tc:' + tpl.Name;
+          var selected = _tcAccountLinks[linkKey] || '';
+          var opts = (typeof COA !== 'undefined') ? COA.accountOptionsHtml(_tcCoa, { isPnL: false, selected: selected }) : '<option value="">-- none --</option>';
+          html += '<td style="padding:6px 8px;"><div style="display:flex;gap:4px;">' +
+            '<select data-role="tc-account" style="font-size:11px;flex:1;">' + opts + '</select>' +
+            '<button class="secondary" data-action="save-tc-account" style="font-size:11px;padding:2px 8px;">Save</button>' +
+            '</div></td>';
+        } else {
+          html += '<td style="padding:6px 8px;font-size:11px;color:#9ca3af;">—</td>';
+        }
+      }
       html += '<td style="padding:6px 8px;text-align:center;">'+badge+'</td>';
       html += '<td style="padding:6px 8px;text-align:center;">'+action+'</td>';
       html += '</tr>';
@@ -362,6 +396,10 @@ function renderTaxCodesOutput(biz, out) {
   out.querySelectorAll('[data-action="create-group"]').forEach(function(btn){
     btn.addEventListener('click', function(){ onCreateGroupTaxCodes(btn, biz); });
   });
+  // Save GL account link for VAT codes
+  out.querySelectorAll('[data-action="save-tc-account"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ onSaveTcAccount(btn, biz); });
+  });
 }
 
 // Derive Manager TaxType from group + name
@@ -375,16 +413,37 @@ function getTaxType(group, name) {
   return 0; // output VAT, zero-rated sales, exempt sales
 }
 
+// Builds the Component entry for a tax code. Manager's TaxRate enum decides
+// rate behavior: 'ZeroRate' (no Rate field) or 'CustomRate' (Rate required).
+// accountGuid (optional) overrides the GL account this component posts to,
+// instead of Manager's generic Tax Payable/Receivable control account.
+function buildTaxComponent(taxType, rate, accountGuid) {
+  var comp = { TaxType: taxType };
+  if (rate > 0) comp.Rate = rate;
+  if (accountGuid) comp.Account = accountGuid;
+  return comp;
+}
+
+function buildTaxCodeValue(name, rate, taxType, accountGuid) {
+  return {
+    Name: name,
+    TaxRate: rate > 0 ? 'CustomRate' : 'ZeroRate',
+    Type: 'SingleRate',
+    Component: [buildTaxComponent(taxType, rate, accountGuid)],
+  };
+}
+
 async function onCreateTaxCode(btn, biz) {
   var name    = btn.dataset.name;
   var mgrRate = parseFloat(btn.dataset.mgrRate);
   var group   = btn.dataset.group || '';
   var taxType = getTaxType(group, name);
+  var accountGuid = (VAT_ACCOUNT_LINKABLE.indexOf(name) !== -1) ? (_tcAccountLinks['tc:' + name] || null) : null;
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
     await apiRequest('POST', '/api4/tax-code', {
       business: biz,
-      value: { Name: name, Component: [{ TaxType: taxType, Rate: mgrRate }] }
+      value: buildTaxCodeValue(name, mgrRate, taxType, accountGuid)
     });
     await loadTaxCodesTab();
   } catch(err) {
@@ -409,15 +468,48 @@ async function onCreateGroupTaxCodes(btn, biz) {
     for (var i = 0; i < missing.length; i++) {
       var m = missing[i];
       var taxType = getTaxType(m.group, m.Name);
+      var accountGuid = (VAT_ACCOUNT_LINKABLE.indexOf(m.Name) !== -1) ? (_tcAccountLinks['tc:' + m.Name] || null) : null;
       await apiRequest('POST', '/api4/tax-code', {
         business: biz,
-        value: { Name: m.Name, Component: [{ TaxType: taxType, Rate: m.managerRate }] }
+        value: buildTaxCodeValue(m.Name, m.managerRate, taxType, accountGuid)
       });
     }
     await loadTaxCodesTab();
   } catch(err) {
     btn.disabled = false; btn.textContent = 'Create All Missing';
     alert('Failed on "'+missing[i]+'": ' + err.message);
+  }
+}
+
+// Save (or update) the GL account a VAT tax code's component posts to.
+async function onSaveTcAccount(btn, biz) {
+  var row = btn.closest('tr');
+  var name = row.dataset.tcName;
+  var mgrRate = parseFloat(row.dataset.tcMgrRate);
+  var group = row.dataset.tcGroup;
+  var tcKey = row.dataset.tcKey;
+  var accountGuid = row.querySelector('[data-role="tc-account"]').value || null;
+
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    _tcAccountLinks['tc:' + name] = accountGuid || '';
+    if (!accountGuid) delete _tcAccountLinks['tc:' + name];
+    await saveAccountLinkMapping(biz, _tcAccountLinks);
+
+    // If the tax code already exists in Manager, also update its component's Account.
+    if (tcKey) {
+      var taxType = getTaxType(group, name);
+      await apiRequest('PUT', '/api4/tax-code', {
+        business: biz,
+        key: tcKey,
+        value: buildTaxCodeValue(name, mgrRate, taxType, accountGuid),
+      });
+    }
+    btn.disabled = false; btn.textContent = '✓ Saved';
+    setTimeout(function(){ btn.textContent = 'Save'; }, 1400);
+  } catch(err) {
+    btn.disabled = false; btn.textContent = 'Save';
+    alert('Failed: ' + err.message);
   }
 }
 

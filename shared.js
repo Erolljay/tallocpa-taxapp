@@ -260,31 +260,80 @@ function buildBIRCustomFields(existingRecord, guid, birData) {
   return Object.assign({}, existing2, { strings });
 }
 
-// Read/save payroll category mapping { itemKey -> birCategoryId }
-// Reads ALL customFields2 strings and collects entries whose values start with
-// 'ph-bir-' — this catches data saved under any GUID from any session.
-async function getPayrollMapping(biz) {
+// All three mapping kinds below (payroll category, COA->BIR category, account-link
+// picker selections) share ONE Manager custom field ('BIR Mapping Data'). Reads scan
+// every stored blob and merge by value/key prefix (resilient to data saved under a
+// stale GUID). Writes MUST merge with the full current blob first — saveBizDataRecord
+// replaces the entire blob at the target GUID, so saving a partial map (e.g. only
+// payroll entries) would silently delete the other two kinds' entries.
+async function _getFullMappingBlob(biz) {
   const bizRec = await getOrCreateBizDataRecord(biz);
   const strings = (bizRec.value.customFields2 && bizRec.value.customFields2.strings) || {};
   const merged = {};
   for (const raw of Object.values(strings)) {
     try {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === 'string' && v.startsWith('ph-bir-')) merged[k] = v;
-        }
-      }
+      if (parsed && typeof parsed === 'object') Object.assign(merged, parsed);
     } catch { /* skip non-JSON or invalid entries */ }
   }
   return merged;
 }
 
-async function savePayrollMapping(biz, mapping) {
+// Saves `partialMap` into the shared blob, replacing only entries matching `keepPredicate`
+// (i.e. entries previously saved by the same caller) and leaving all other entries intact.
+async function _saveIntoMappingBlob(biz, partialMap, keepPredicate) {
   const guids = await ensureBIRFields(biz);
   const targetGuid = guids && guids.mapping;
   if (!targetGuid) throw new Error('BIR Mapping Data custom field not available');
-  return saveBizDataRecord(biz, targetGuid, mapping);
+  const full = await _getFullMappingBlob(biz);
+  for (const k of Object.keys(full)) {
+    if (keepPredicate(k, full[k])) delete full[k];
+  }
+  Object.assign(full, partialMap);
+  return saveBizDataRecord(biz, targetGuid, full);
+}
+
+// Read/save payroll category mapping { itemKey -> birCategoryId }, values prefixed 'ph-bir-'.
+async function getPayrollMapping(biz) {
+  const full = await _getFullMappingBlob(biz);
+  const merged = {};
+  for (const [k, v] of Object.entries(full)) {
+    if (typeof v === 'string' && v.startsWith('ph-bir-')) merged[k] = v;
+  }
+  return merged;
+}
+
+async function savePayrollMapping(biz, mapping) {
+  return _saveIntoMappingBlob(biz, mapping, (k, v) => typeof v === 'string' && v.startsWith('ph-bir-'));
+}
+
+// Read/save Chart-of-Accounts -> BIR category mapping { accountGuid -> 'acct-bir-<category>' }.
+async function getCoaMapping(biz) {
+  const full = await _getFullMappingBlob(biz);
+  const merged = {};
+  for (const [k, v] of Object.entries(full)) {
+    if (typeof v === 'string' && v.startsWith('acct-bir-')) merged[k] = v;
+  }
+  return merged;
+}
+
+async function saveCoaMapping(biz, mapping) {
+  return _saveIntoMappingBlob(biz, mapping, (k, v) => typeof v === 'string' && v.startsWith('acct-bir-'));
+}
+
+// Read/save account-picker assignments for payslip items & VAT tax codes.
+// Keys: 'psi:<itemKey>:expense' | 'psi:<itemKey>:liability' | 'tc:<tcName>' -> accountGuid.
+async function getAccountLinkMapping(biz) {
+  const full = await _getFullMappingBlob(biz);
+  const merged = {};
+  for (const [k, v] of Object.entries(full)) {
+    if (typeof v === 'string' && (k.startsWith('psi:') || k.startsWith('tc:'))) merged[k] = v;
+  }
+  return merged;
+}
+
+async function saveAccountLinkMapping(biz, mapping) {
+  return _saveIntoMappingBlob(biz, mapping, (k) => k.startsWith('psi:') || k.startsWith('tc:'));
 }
 
 // Load business-details from Manager

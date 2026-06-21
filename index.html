@@ -12,14 +12,12 @@
 
 <div class="tabs">
   <button type="button" class="tab active" data-view="welcome">Welcome</button>
-  <button type="button" class="tab" data-view="reports">Reports</button>
+  <button type="button" class="tab" data-view="business">Business</button>
+  <button type="button" class="tab" data-view="coa">Chart of Accounts</button>
   <button type="button" class="tab" data-view="setup">Tax codes</button>
   <button type="button" class="tab" data-view="batch-import-setup">Setup</button>
-  <button type="button" class="tab" data-view="business">Business</button>
-  <button type="button" class="tab" data-view="customers">Customers</button>
-  <button type="button" class="tab" data-view="suppliers">Suppliers</button>
-  <button type="button" class="tab" data-view="employees">Employees</button>
   <button type="button" class="tab" data-view="payslip-items">Payslip items</button>
+  <button type="button" class="tab" data-view="reports">Reports</button>
 </div>
 
 <div class="business-bar">
@@ -32,20 +30,21 @@
 <div id="welcome-view">
   <p>This extension helps Philippine businesses generate BIR-compliant tax returns
   and reports using data already in Manager.io — no double-entry needed.</p>
-  <h2>Reports</h2>
-  <p>Install BIR report buttons into any business. Once installed, each report appears
-  under that business's <strong>Reports</strong> tab. Reports marked <em>Coming soon</em>
-  are planned for a future phase.</p>
-  <h2>Tax codes</h2>
-  <p>Create standard PH tax codes with one click. Also contains mapping sections for
-  VAT, EWT / CWT, FWT, and Percentage Tax — configure once and all reports read from
-  them automatically.</p>
-  <h2>Business / Customers / Suppliers / Employees</h2>
-  <p>BIR fields (TIN, RDO Code, classification, names, addresses, SSS / PhilHealth /
-  Pag-IBIG numbers) stored directly in Manager records. Fill once; all reports use them.</p>
-  <h2>Payslip items</h2>
-  <p>Assign payslip items to BIR reporting categories so values flow into 1601C, SAWT,
-  and 2316 correctly.</p>
+  <p>Recommended setup order for a new business:</p>
+  <ol>
+    <li><strong>Business</strong> — BIR identity fields (TIN, RDO Code, classification, registered name, address).</li>
+    <li><strong>Chart of Accounts</strong> — create/rename GL accounts and groups, and map each one to a BIR
+    income-tax category (Asset, Liabilities, Equity, Revenue, Cost of Sales, Cost of Services, Operating
+    Expenses, Other Income, Other Expense) so 1701/1701Q/1702Q/1702RT classify them correctly.</li>
+    <li><strong>Tax codes</strong> — create standard PH tax codes, then map VAT, EWT / CWT, FWT, and Percentage
+    Tax categories — including the GL account each VAT code should post to.</li>
+    <li><strong>Setup</strong> — install Batch Import tools for Sales, Purchases, and Payroll.</li>
+    <li><strong>Payslip items</strong> — assign payslip items to BIR reporting categories, plus the expense /
+    liability account each one posts to, so values flow into 1601C, SAWT, and 2316 correctly.</li>
+    <li><strong>Reports</strong> — install the BIR report buttons this business needs.</li>
+  </ol>
+  <p class="muted">Customer / Supplier / Employee BIR details (TIN, addresses, SSS / PhilHealth / Pag-IBIG
+  numbers, etc.) are filled in directly within the relevant report screens, not here.</p>
   <p class="muted">Select a business above, then switch to any tab to get started.</p>
 </div>
 
@@ -76,14 +75,8 @@
 <!-- ── BUSINESS ─────────────────────────────────────────────── -->
 <div id="business-view" hidden></div>
 
-<!-- ── CUSTOMERS ────────────────────────────────────────────── -->
-<div id="customers-view" hidden></div>
-
-<!-- ── SUPPLIERS ────────────────────────────────────────────── -->
-<div id="suppliers-view" hidden></div>
-
-<!-- ── EMPLOYEES ────────────────────────────────────────────── -->
-<div id="employees-view" hidden></div>
+<!-- ── CHART OF ACCOUNTS ────────────────────────────────────── -->
+<div id="coa-view" hidden></div>
 
 <!-- ── PAYSLIP ITEMS ─────────────────────────────────────────── -->
 <div id="payslip-items-view" hidden></div>
@@ -91,8 +84,10 @@
 <!-- Extension UUID: 7a3f9e2d-5b8c-4e1a-9d6f-2c4a7b8e3f1d  DO NOT CHANGE -->
 <script src="shared.js"></script>
 <script src="reports.js"></script>
+<script src="pnl-helpers.js"></script>
 <script src="tax-codes.js"></script>
 <script src="custom-fields.js"></script>
+<script src="chart-of-accounts.js"></script>
 <script src="app.js"></script>
 
 </body>

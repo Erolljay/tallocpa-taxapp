@@ -65,6 +65,41 @@ async function loadChartOfAccounts(biz, force = false) {
   return byKey;
 }
 
+function invalidateCoaCache(biz) {
+  delete _coaCache[biz];
+}
+
+// ── ACCOUNT GROUPS CACHE ─────────────────────────────────────
+// Groups are real Manager resources (balance-sheet-group / profit-and-loss-
+// statement-group) — accounts reference one by GUID. Used by the COA builder
+// to populate the Group picker and to create new custom headings.
+let _coaGroupCache = {};
+
+async function loadAccountGroups(biz, force = false) {
+  if (!force && _coaGroupCache[biz]) return _coaGroupCache[biz];
+
+  const [pnlGroups, bsGroups] = await Promise.all([
+    fetchAllBatch('/api4/profit-and-loss-statement-group-batch', biz),
+    fetchAllBatch('/api4/balance-sheet-group-batch', biz),
+  ]);
+
+  const norm = (it, isPnL) => {
+    const g = it.item || it.value || it;
+    return { key: g.key || it.key, name: g.name, isProfitAndLossAccount: isPnL };
+  };
+
+  const result = {
+    pnl: pnlGroups.map(it => norm(it, true)),
+    bs: bsGroups.map(it => norm(it, false)),
+  };
+  _coaGroupCache[biz] = result;
+  return result;
+}
+
+function invalidateAccountGroupsCache(biz) {
+  delete _coaGroupCache[biz];
+}
+
 function findAccountByName(coa, nameSubstr) {
   const needle = nameSubstr.toLowerCase();
   return Object.values(coa).find(a => (a.name || '').toLowerCase().includes(needle)) || null;
