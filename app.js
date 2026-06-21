@@ -365,7 +365,8 @@ function renderTaxCodesOutput(biz, out) {
       if (hasAccountCol) {
         if (VAT_ACCOUNT_LINKABLE.indexOf(tpl.Name) !== -1) {
           var linkKey = 'tc:' + tpl.Name;
-          var selected = _tcAccountLinks[linkKey] || '';
+          var nativeAccount = (match && match.value && match.value.account) || '';
+          var selected = _tcAccountLinks[linkKey] || nativeAccount || '';
           var opts = (typeof COA !== 'undefined') ? COA.accountOptionsHtml(_tcCoa, { isPnL: false, selected: selected }) : '<option value="">-- none --</option>';
           html += '<td style="padding:6px 8px;"><div style="display:flex;gap:4px;">' +
             '<select data-role="tc-account" style="font-size:11px;flex:1;">' + opts + '</select>' +
