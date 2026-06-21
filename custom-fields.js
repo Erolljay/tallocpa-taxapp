@@ -702,8 +702,8 @@
   // expense account; deductions redirect to one liability account; employer
   // contributions need BOTH (employer's cost + amount payable to the agency).
   var PAYSLIP_ACCOUNT_FIELDS = {
-    earnings:      { expense: 'account' },
-    deductions:    { liability: 'account' },
+    earnings:      { expense: 'expenseAccount' },
+    deductions:    { liability: 'liabilityAccount' },
     contributions: { expense: 'expenseAccount', liability: 'liabilityAccount' },
   };
 
@@ -846,16 +846,17 @@
           if (fields.liability && liabilityGuid) createValue[fields.liability] = liabilityGuid;
 
           var created = await apiRequest('POST', '/api4/' + type.endpoint, { business: biz(), value: createValue });
+          var createdKey = typeof created === 'string' ? created : (created && (created.key || created.Key));
 
           // Map the new item immediately in our blob
-          if (created && created.key && cat) {
-            payrollMap[created.key] = cat;
+          if (createdKey && cat) {
+            payrollMap[createdKey] = cat;
             await savePayrollMapping(biz(), payrollMap);
           }
-          if (created && created.key) {
+          if (createdKey) {
             var linkChanged = false;
-            if (fields.expense && expenseGuid) { accountLinks['psi:' + created.key + ':expense'] = expenseGuid; linkChanged = true; }
-            if (fields.liability && liabilityGuid) { accountLinks['psi:' + created.key + ':liability'] = liabilityGuid; linkChanged = true; }
+            if (fields.expense && expenseGuid) { accountLinks['psi:' + createdKey + ':expense'] = expenseGuid; linkChanged = true; }
+            if (fields.liability && liabilityGuid) { accountLinks['psi:' + createdKey + ':liability'] = liabilityGuid; linkChanged = true; }
             if (linkChanged) await saveAccountLinkMapping(biz(), accountLinks);
           }
 
