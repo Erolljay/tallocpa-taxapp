@@ -703,7 +703,7 @@
   // contributions need BOTH (employer's cost + amount payable to the agency).
   var PAYSLIP_ACCOUNT_FIELDS = {
     earnings:      { expense: 'expenseAccount' },
-    deductions:    { liability: 'liabilityAccount' },
+    deductions:    { liability: 'account' },
     contributions: { expense: 'expenseAccount', liability: 'liabilityAccount' },
   };
 
