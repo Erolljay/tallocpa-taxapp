@@ -85,20 +85,30 @@
       var business = biz();
       if (!business) { container.innerHTML = noBusinessMsg(); return; }
       container.innerHTML = spinner('Loading chart of accounts...');
+      var loadError = '';
       try {
-        var results = await Promise.all([
-          loadChartOfAccounts(business, true),
-          loadAccountGroups(business, true),
-          getCoaMapping(business),
-        ]);
-        coa = results[0];
-        groups = results[1];
-        coaMap = results[2];
+        coa = await loadChartOfAccounts(business, true);
       } catch (err) {
-        container.innerHTML = '<div class="alert alert-error">Failed: ' + esc(err.message) + '</div>';
-        return;
+        console.error('[COA] loadChartOfAccounts failed:', err);
+        coa = {};
+        loadError += 'Accounts: ' + err.message + '. ';
       }
-      render();
+      try {
+        groups = await loadAccountGroups(business, true);
+      } catch (err) {
+        console.error('[COA] loadAccountGroups failed:', err);
+        groups = { pnl: [], bs: [] };
+        loadError += 'Groups: ' + err.message + '. ';
+      }
+      try {
+        coaMap = await getCoaMapping(business);
+      } catch (err) {
+        console.error('[COA] getCoaMapping failed:', err);
+        coaMap = {};
+        loadError += 'Mapping: ' + err.message + '. ';
+      }
+      console.log('[COA] loaded', Object.keys(coa).length, 'accounts;', groups.pnl.length, 'P&L groups;', groups.bs.length, 'balance-sheet groups.');
+      render(loadError);
     }
 
     function groupOptionsHtml(isPnL, selected) {
@@ -135,9 +145,11 @@
       '</div>';
     }
 
-    function render() {
-      var intro = '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">Create accounts here, or map accounts Manager already has to a BIR income-tax category so 1701/1701Q/1702Q/1702RT can classify them correctly.</p>';
-      container.innerHTML = buildCreatorHtml() + intro + BIR_COA_CATEGORIES.map(renderCategoryTable).join('') + renderUnmappedTable();
+    function render(loadError) {
+      var intro = '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">Create accounts here, or map accounts Manager already has to a BIR income-tax category so 1701/1701Q/1702Q/1702RT can classify them correctly.</p>' +
+        '<p style="font-size:11px;color:#9ca3af;margin-bottom:14px;">Loaded ' + Object.keys(coa).length + ' account(s), ' + (groups.pnl.length + groups.bs.length) + ' group(s).</p>';
+      var errorBanner = loadError ? '<div class="alert alert-error" style="margin-bottom:14px;">⚠ ' + esc(loadError) + '</div>' : '';
+      container.innerHTML = errorBanner + buildCreatorHtml() + intro + BIR_COA_CATEGORIES.map(renderCategoryTable).join('') + renderUnmappedTable();
 
       window._coaOnCat = function () {
         var sel = document.getElementById('coa-new-cat');
