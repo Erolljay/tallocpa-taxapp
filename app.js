@@ -434,6 +434,27 @@ function buildTaxCodeValue(name, rate, taxType, accountGuid) {
   };
 }
 
+// Creates a tax code in Manager, then (if a GL account is linked) immediately
+// PUTs the account onto the newly-created code. Manager's tax-code POST does
+// not accept an Account on the initial Component — it must be set via a
+// follow-up update once the code (and its key) exist.
+async function createTaxCodeWithAccount(biz, name, mgrRate, taxType, accountGuid) {
+  var created = await apiRequest('POST', '/api4/tax-code', {
+    business: biz,
+    value: buildTaxCodeValue(name, mgrRate, taxType, null)
+  });
+  if (accountGuid) {
+    var tcKey = created && (created.key || created.Key);
+    if (tcKey) {
+      await apiRequest('PUT', '/api4/tax-code', {
+        business: biz,
+        key: tcKey,
+        value: buildTaxCodeValue(name, mgrRate, taxType, accountGuid)
+      });
+    }
+  }
+}
+
 async function onCreateTaxCode(btn, biz) {
   var name    = btn.dataset.name;
   var mgrRate = parseFloat(btn.dataset.mgrRate);
@@ -442,10 +463,7 @@ async function onCreateTaxCode(btn, biz) {
   var accountGuid = (VAT_ACCOUNT_LINKABLE.indexOf(name) !== -1) ? (_tcAccountLinks['tc:' + name] || null) : null;
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
-    await apiRequest('POST', '/api4/tax-code', {
-      business: biz,
-      value: buildTaxCodeValue(name, mgrRate, taxType, accountGuid)
-    });
+    await createTaxCodeWithAccount(biz, name, mgrRate, taxType, accountGuid);
     await loadTaxCodesTab();
   } catch(err) {
     btn.disabled = false; btn.textContent = 'Create';
@@ -470,10 +488,7 @@ async function onCreateGroupTaxCodes(btn, biz) {
       var m = missing[i];
       var taxType = getTaxType(m.group, m.Name);
       var accountGuid = (VAT_ACCOUNT_LINKABLE.indexOf(m.Name) !== -1) ? (_tcAccountLinks['tc:' + m.Name] || null) : null;
-      await apiRequest('POST', '/api4/tax-code', {
-        business: biz,
-        value: buildTaxCodeValue(m.Name, m.managerRate, taxType, accountGuid)
-      });
+      await createTaxCodeWithAccount(biz, m.Name, m.managerRate, taxType, accountGuid);
     }
     await loadTaxCodesTab();
   } catch(err) {
