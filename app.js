@@ -403,53 +403,42 @@ function renderTaxCodesOutput(biz, out) {
   });
 }
 
-// Derive Manager TaxType from group + name
-function getTaxType(group, name) {
-  if (group === 'EWT' || group === 'GOVT' || group === 'FWT') return 4;
-  if (group === 'PT') return 0;  // Percentage tax treated as output-type in Manager
-  // VAT group
-  var n = (name || '').toLowerCase();
-  if (n.includes('capital')) return 2;
-  if (n.includes('input') || n.includes('purchase')) return 1;
-  return 0; // output VAT, zero-rated sales, exempt sales
+// Manager's tax-code schema (confirmed via /openapi/post-tax-code.json):
+// fields are lowercase, taxRate/type are integer enums, rate+account are flat
+// on the tax code itself — there is no per-component TaxType field.
+//   taxRate: 0 = ZeroRate, 1 = TotalRate (withholding pass-through, rate=0),
+//            2 = CustomRate (real percentage, e.g. 12)
+//   type:    0 = SingleRate (the only type this app creates)
+function taxRateEnum(group, managerRate) {
+  if (group === 'EWT' || group === 'GOVT' || group === 'FWT') return 1;
+  return managerRate > 0 ? 2 : 0;
 }
 
-// Builds the Component entry for a tax code. Manager's TaxRate enum decides
-// rate behavior: 'ZeroRate' (no Rate field) or 'CustomRate' (Rate required).
-// accountGuid (optional) overrides the GL account this component posts to,
-// instead of Manager's generic Tax Payable/Receivable control account.
-function buildTaxComponent(taxType, rate, accountGuid) {
-  var comp = { TaxType: taxType };
-  if (rate > 0) comp.Rate = rate;
-  if (accountGuid) comp.Account = accountGuid;
-  return comp;
-}
-
-function buildTaxCodeValue(name, rate, taxType, accountGuid) {
+function buildTaxCodeValue(name, managerRate, group, accountGuid) {
+  var tr = taxRateEnum(group, managerRate);
   return {
-    Name: name,
-    TaxRate: rate > 0 ? 'CustomRate' : 'ZeroRate',
-    Type: 'SingleRate',
-    Component: [buildTaxComponent(taxType, rate, accountGuid)],
+    name: name,
+    taxRate: tr,
+    type: 0,
+    rate: tr === 2 ? managerRate : 0,
+    account: accountGuid || null,
   };
 }
 
 // Creates a tax code in Manager, then (if a GL account is linked) immediately
-// PUTs the account onto the newly-created code. Manager's tax-code POST does
-// not accept an Account on the initial Component — it must be set via a
-// follow-up update once the code (and its key) exist.
-async function createTaxCodeWithAccount(biz, name, mgrRate, taxType, accountGuid) {
+// PUTs the account onto the newly-created code's key.
+async function createTaxCodeWithAccount(biz, name, mgrRate, group, accountGuid) {
   var created = await apiRequest('POST', '/api4/tax-code', {
     business: biz,
-    value: buildTaxCodeValue(name, mgrRate, taxType, null)
+    value: buildTaxCodeValue(name, mgrRate, group, null)
   });
   if (accountGuid) {
-    var tcKey = created && (created.key || created.Key);
+    var tcKey = typeof created === 'string' ? created : (created && (created.key || created.Key));
     if (tcKey) {
       await apiRequest('PUT', '/api4/tax-code', {
         business: biz,
         key: tcKey,
-        value: buildTaxCodeValue(name, mgrRate, taxType, accountGuid)
+        value: buildTaxCodeValue(name, mgrRate, group, accountGuid)
       });
     }
   }
@@ -459,11 +448,10 @@ async function onCreateTaxCode(btn, biz) {
   var name    = btn.dataset.name;
   var mgrRate = parseFloat(btn.dataset.mgrRate);
   var group   = btn.dataset.group || '';
-  var taxType = getTaxType(group, name);
   var accountGuid = (VAT_ACCOUNT_LINKABLE.indexOf(name) !== -1) ? (_tcAccountLinks['tc:' + name] || null) : null;
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
-    await createTaxCodeWithAccount(biz, name, mgrRate, taxType, accountGuid);
+    await createTaxCodeWithAccount(biz, name, mgrRate, group, accountGuid);
     await loadTaxCodesTab();
   } catch(err) {
     btn.disabled = false; btn.textContent = 'Create';
@@ -486,9 +474,8 @@ async function onCreateGroupTaxCodes(btn, biz) {
   try {
     for (var i = 0; i < missing.length; i++) {
       var m = missing[i];
-      var taxType = getTaxType(m.group, m.Name);
       var accountGuid = (VAT_ACCOUNT_LINKABLE.indexOf(m.Name) !== -1) ? (_tcAccountLinks['tc:' + m.Name] || null) : null;
-      await createTaxCodeWithAccount(biz, m.Name, m.managerRate, taxType, accountGuid);
+      await createTaxCodeWithAccount(biz, m.Name, m.managerRate, m.group, accountGuid);
     }
     await loadTaxCodesTab();
   } catch(err) {
@@ -497,7 +484,7 @@ async function onCreateGroupTaxCodes(btn, biz) {
   }
 }
 
-// Save (or update) the GL account a VAT tax code's component posts to.
+// Save (or update) the GL account a VAT tax code posts to.
 async function onSaveTcAccount(btn, biz) {
   var row = btn.closest('tr');
   var name = row.dataset.tcName;
@@ -512,13 +499,12 @@ async function onSaveTcAccount(btn, biz) {
     if (!accountGuid) delete _tcAccountLinks['tc:' + name];
     await saveAccountLinkMapping(biz, _tcAccountLinks);
 
-    // If the tax code already exists in Manager, also update its component's Account.
+    // If the tax code already exists in Manager, also update its account.
     if (tcKey) {
-      var taxType = getTaxType(group, name);
       await apiRequest('PUT', '/api4/tax-code', {
         business: biz,
         key: tcKey,
-        value: buildTaxCodeValue(name, mgrRate, taxType, accountGuid),
+        value: buildTaxCodeValue(name, mgrRate, group, accountGuid),
       });
     }
     btn.disabled = false; btn.textContent = '✓ Saved';
