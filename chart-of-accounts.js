@@ -167,6 +167,9 @@
       container.querySelectorAll('[data-action="coa-save-row"]').forEach(function (btn) {
         btn.addEventListener('click', onSaveRow);
       });
+      container.querySelectorAll('[data-action="coa-save-all"]').forEach(function (btn) {
+        btn.addEventListener('click', onSaveAll);
+      });
     }
 
     function accountsForCategory(catId) {
@@ -198,11 +201,15 @@
 
     function renderCategoryTable(cat) {
       var accts = accountsForCategory(cat.id);
-      var heading = '<h3 style="margin:16px 0 6px;font-size:13px;font-weight:500;">' + esc(cat.label) + '</h3>';
+      var tableId = cat.id + '-tbl';
+      var heading = '<h3 style="margin:16px 0 6px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:10px;">' +
+        '<span>' + esc(cat.label) + '</span>' +
+        (accts.length ? '<button data-action="coa-save-all" data-table="' + tableId + '" style="font-size:11px;padding:3px 12px;border:1px solid #d1d5db;border-radius:5px;background:#fff;cursor:pointer;">Save All</button>' : '') +
+        '</h3>';
       if (!accts.length) return heading + '<p class="muted">No accounts mapped to ' + esc(cat.label.toLowerCase()) + ' yet.</p>';
       var rows = accts.map(function (a) { return categoryRow(cat, a); }).join('');
       return heading +
-        '<div style="overflow-x:auto;margin-bottom:8px;"><table style="width:100%;border-collapse:collapse;">' +
+        '<div style="overflow-x:auto;margin-bottom:8px;"><table id="' + tableId + '" style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;color:#9ca3af;">' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Account</th>' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Group</th>' +
@@ -213,7 +220,11 @@
     function renderUnmappedTable() {
       var unmapped = Object.values(coa).filter(function (a) { return !coaMap[a.key]; })
         .sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
-      var heading = '<h3 style="margin:20px 0 6px;font-size:13px;font-weight:500;color:#b45309;">⚠ Not yet mapped</h3>';
+      var tableId = 'coa-unmapped-tbl';
+      var heading = '<h3 style="margin:20px 0 6px;font-size:13px;font-weight:500;color:#b45309;display:flex;align-items:center;gap:10px;">' +
+        '<span>⚠ Not yet mapped</span>' +
+        (unmapped.length ? '<button data-action="coa-save-all" data-table="' + tableId + '" style="font-size:11px;padding:3px 12px;border:1px solid #d1d5db;border-radius:5px;background:#fff;cursor:pointer;">Save All</button>' : '') +
+        '</h3>';
       if (!unmapped.length) return heading + '<p class="muted">All accounts are mapped.</p>';
       var rows = unmapped.map(function (a) {
         var defaultCat = a.isProfitAndLossAccount ? 'acct-bir-opex' : 'acct-bir-asset';
@@ -231,7 +242,7 @@
           '</tr>';
       }).join('');
       return heading +
-        '<div style="overflow-x:auto;margin-bottom:8px;"><table style="width:100%;border-collapse:collapse;">' +
+        '<div style="overflow-x:auto;margin-bottom:8px;"><table id="' + tableId + '" style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;color:#9ca3af;">' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Account</th>' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Group</th>' +
@@ -267,8 +278,9 @@
         var acctValue = { name: name, group: groupGuid || null };
         if (code) acctValue.code = code;
         var createdAcct = await apiRequest('POST', acctEndpoint, { business: business, value: acctValue });
+        console.log('[COA] create account response:', createdAcct);
         var acctGuid = (createdAcct && (createdAcct.key || createdAcct.Key)) || null;
-        if (!acctGuid) throw new Error('Could not create account');
+        if (!acctGuid) throw new Error('Could not create account (no key in response — see console for raw response)');
 
         coaMap[acctGuid] = cat.id;
         await saveCoaMapping(business, coaMap);
@@ -285,32 +297,63 @@
       }
     }
 
-    async function onSaveRow(e) {
-      var btn = e.currentTarget;
-      var row = btn.closest('tr');
+    // Shared by single-row Save and Save All: persists one row's name/category
+    // edit. mapDirty lets Save All batch the coaMap write into one call instead
+    // of one saveCoaMapping per row.
+    async function saveRow(business, row, mapDirty) {
       var guid = row.dataset.key;
-      var business = biz();
       var acct = coa[guid];
-      if (!business || !acct) return;
+      if (!acct) return;
 
       var newName = (row.querySelector('[data-role="name"]').value || '').trim();
       var newCat = row.querySelector('[data-role="cat"]').value || '';
 
+      if (newName && newName !== acct.name) {
+        var endpoint = acct.isProfitAndLossAccount ? '/api4/profit-and-loss-statement-account' : '/api4/balance-sheet-account';
+        await apiRequest('PUT', endpoint, {
+          business: business,
+          key: guid,
+          value: { name: newName, group: acct.group || null },
+        });
+        acct.name = newName;
+        invalidateCoaCache(business);
+      }
+      if (newCat) {
+        mapDirty[guid] = newCat;
+      } else {
+        delete mapDirty[guid];
+      }
+    }
+
+    async function onSaveRow(e) {
+      var btn = e.currentTarget;
+      var row = btn.closest('tr');
+      var business = biz();
+      if (!business) return;
+
       try {
-        if (newName && newName !== acct.name) {
-          var endpoint = acct.isProfitAndLossAccount ? '/api4/profit-and-loss-statement-account' : '/api4/balance-sheet-account';
-          await apiRequest('PUT', endpoint, {
-            business: business,
-            key: guid,
-            value: { name: newName, group: acct.group || null },
-          });
-          acct.name = newName;
-          invalidateCoaCache(business);
-        }
-        if (newCat) {
-          coaMap[guid] = newCat;
-        } else {
-          delete coaMap[guid];
+        await saveRow(business, row, coaMap);
+        await saveCoaMapping(business, coaMap);
+        flash(btn, true);
+        await refresh();
+      } catch (err) {
+        console.error(err);
+        flash(btn, false);
+      }
+    }
+
+    async function onSaveAll(e) {
+      var btn = e.currentTarget;
+      var table = document.getElementById(btn.dataset.table);
+      var business = biz();
+      if (!business || !table) return;
+
+      var rows = table.querySelectorAll('tbody tr');
+      btn.textContent = 'Saving…';
+      btn.disabled = true;
+      try {
+        for (var i = 0; i < rows.length; i++) {
+          await saveRow(business, rows[i], coaMap);
         }
         await saveCoaMapping(business, coaMap);
         flash(btn, true);
@@ -318,6 +361,7 @@
       } catch (err) {
         console.error(err);
         flash(btn, false);
+        btn.disabled = false;
       }
     }
 
