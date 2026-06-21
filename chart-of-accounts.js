@@ -35,6 +35,26 @@
     return BIR_COA_CATEGORIES.find(function (c) { return c.id === id; });
   }
 
+  // ── NATIVE MANAGER MASTER GROUP GUIDS ────────────────────────
+  // These top-level Asset/Liability/Revenue/Cost-of-Sales/Operating-Expenses
+  // "father" groups are standard system records (same across all Manager
+  // businesses) but are NOT returned by balance-sheet-group-batch /
+  // profit-and-loss-statement-group-batch — only their editable *subgroups*
+  // are. If an account or group is created with no `group` value at all,
+  // Manager silently files it under Equity > Uncategorized regardless of
+  // BIR Category picked here, which is wrong for Asset/Liability accounts.
+  // Passing one of these GUIDs as the new group's own parent fixes that.
+  // Cost of Services/Other Income/Other Expense have no confirmed master
+  // GUID yet, so those still fall back to Manager's default (Equity).
+  var NATIVE_MASTER_GROUP = {
+    'acct-bir-asset':  '4c05c221-ca57-4c7c-be62-115669302ed4',
+    'acct-bir-liab':   'ed5a19f6-12c5-45cc-b4b7-4e79f7ef50bc',
+    'acct-bir-equity': '9275ff4c-4cff-41d0-b7b5-f31c783f03d8',
+    'acct-bir-revenue':'95713fac-30d3-42e4-b536-dd7bc4f7a80e',
+    'acct-bir-cogs':   '11eafe62-925c-4b6b-8321-1b5485a963cc',
+    'acct-bir-opex':   'fd003045-876e-439e-b923-1904453f5c30',
+  };
+
   // ── Local helpers (kept self-contained, same pattern as custom-fields.js) ──
   function esc(s) {
     return String(s != null ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -265,13 +285,35 @@
       if (groupVal === '__new__' && !newGroupName) { msgEl.innerHTML = '<span style="color:#c0392b;">Please enter a name for the new group.</span>'; return; }
 
       msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
+      var landedNote = '';
       try {
+        var masterGuid = NATIVE_MASTER_GROUP[cat.id] || null;
         var groupGuid = groupVal;
         if (groupVal === '__new__') {
           var groupEndpoint = cat.isPnL ? '/api4/profit-and-loss-statement-group' : '/api4/balance-sheet-group';
-          var createdGroup = await apiRequest('POST', groupEndpoint, { business: business, value: { name: newGroupName } });
+          // Nest the new group under its native Manager "father" (Asset/
+          // Liabilities/Revenue/Cost of Sales/Operating Expenses) when known,
+          // so it lands in the right section instead of defaulting to Equity.
+          var groupCreateValue = { name: newGroupName };
+          if (masterGuid) groupCreateValue.group = masterGuid;
+          var createdGroup = await apiRequest('POST', groupEndpoint, { business: business, value: groupCreateValue });
           groupGuid = (createdGroup && (createdGroup.key || createdGroup.Key)) || null;
+          if (!groupGuid) {
+            // Manager's create response doesn't always echo the new key back —
+            // fall back to looking the group up by name in a fresh fetch.
+            invalidateAccountGroupsCache(business);
+            var freshGroups = await loadAccountGroups(business, true);
+            var foundGroup = (cat.isPnL ? freshGroups.pnl : freshGroups.bs)
+              .find(function (g) { return (g.name || '').toLowerCase() === newGroupName.toLowerCase(); });
+            groupGuid = foundGroup ? foundGroup.key : null;
+          }
           if (!groupGuid) throw new Error('Could not create group');
+        } else if (!groupGuid && masterGuid) {
+          // No group picked — attach straight to the native master group
+          // instead of leaving it null (which Manager dumps under Equity).
+          groupGuid = masterGuid;
+        } else if (!groupGuid && !masterGuid) {
+          landedNote = ' Note: Manager has no fixed "father" group for ' + cat.label + ' wired up here yet — if it lands in the wrong section, move it under Settings ▸ Chart of Accounts in Manager.';
         }
 
         var acctEndpoint = cat.isPnL ? '/api4/profit-and-loss-statement-account' : '/api4/balance-sheet-account';
@@ -280,7 +322,17 @@
         var createdAcct = await apiRequest('POST', acctEndpoint, { business: business, value: acctValue });
         console.log('[COA] create account response:', createdAcct);
         var acctGuid = (createdAcct && (createdAcct.key || createdAcct.Key)) || null;
-        if (!acctGuid) throw new Error('Could not create account (no key in response — see console for raw response)');
+        if (!acctGuid) {
+          // Same fallback as groups: the POST succeeded (it shows up in Manager
+          // on refresh) but the response body didn't echo a key — look it up.
+          invalidateCoaCache(business);
+          var freshCoa = await loadChartOfAccounts(business, true);
+          var foundAcct = Object.values(freshCoa).find(function (a) {
+            return (a.name || '').toLowerCase() === name.toLowerCase() && a.isProfitAndLossAccount === cat.isPnL;
+          });
+          acctGuid = foundAcct ? foundAcct.key : null;
+        }
+        if (!acctGuid) throw new Error('Account may have been created in Manager, but could not be found to map it — please refresh and map it manually.');
 
         coaMap[acctGuid] = cat.id;
         await saveCoaMapping(business, coaMap);
@@ -291,7 +343,7 @@
         invalidateAccountGroupsCache(business);
         await refresh();
         msgEl ? null : null;
-        showToastSafe('✅ "' + name + '" created and mapped to ' + cat.label + '.');
+        showToastSafe('✅ "' + name + '" created and mapped to ' + cat.label + '.' + landedNote);
       } catch (err) {
         msgEl.innerHTML = '<span style="color:#c0392b;">❌ ' + esc(err.message) + '</span>';
       }
