@@ -142,53 +142,30 @@
       return html;
     }
 
-    function buildCreatorHtml() {
-      var catOpts = BIR_COA_CATEGORIES.map(function (c) {
-        return '<option value="' + esc(c.id) + '" data-pnl="' + c.isPnL + '">' + esc(c.label) + '</option>';
-      }).join('');
-      var firstCat = BIR_COA_CATEGORIES[0];
-      return '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:18px;">' +
-        '<div style="font-size:12px;font-weight:700;color:#0d1b3e;margin-bottom:10px;">➕ Create New Account</div>' +
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
-          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Account Name</label>' +
-            '<input id="coa-new-name" type="text" placeholder="e.g. Office Supplies Expense" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;width:220px;" /></div>' +
-          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Code</label>' +
-            '<input id="coa-new-code" type="text" placeholder="optional" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;width:90px;" /></div>' +
-          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">BIR Category</label>' +
-            '<select id="coa-new-cat" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;min-width:180px;" onchange="window._coaOnCat()">' + catOpts + '</select></div>' +
-          '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Group / Heading</label>' +
-            '<select id="coa-new-group" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;min-width:200px;" onchange="window._coaOnGroupSel()">' + groupOptionsHtml(firstCat.isPnL, '') + '</select>' +
-            '<input id="coa-new-group-name" type="text" placeholder="New group name" style="font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;width:200px;margin-top:5px;display:none;" /></div>' +
-          '<button class="btn btn-primary" onclick="window._coaCreate()" style="white-space:nowrap;align-self:flex-end;padding:6px 16px;">✦ Create</button>' +
-        '</div>' +
-        '<div id="coa-new-msg" style="margin-top:7px;font-size:11px;min-height:14px;"></div>' +
-      '</div>';
-    }
-
     function render(loadError) {
-      var intro = '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">Create accounts here, or map accounts Manager already has to a BIR income-tax category so 1701/1701Q/1702Q/1702RT can classify them correctly.</p>' +
+      var intro = '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">Click "+ Add Account" on a category below to add blank rows, fill them in, then "Save All" to post them to Manager in one go — or map accounts Manager already has to a BIR income-tax category so 1701/1701Q/1702Q/1702RT can classify them correctly.</p>' +
         '<p style="font-size:11px;color:#9ca3af;margin-bottom:14px;">Loaded ' + Object.keys(coa).length + ' account(s), ' + (groups.pnl.length + groups.bs.length) + ' group(s).</p>';
       var errorBanner = loadError ? '<div class="alert alert-error" style="margin-bottom:14px;">⚠ ' + esc(loadError) + '</div>' : '';
-      container.innerHTML = errorBanner + buildCreatorHtml() + intro + BIR_COA_CATEGORIES.map(renderCategoryTable).join('') + renderUnmappedTable();
+      container.innerHTML = errorBanner + intro + BIR_COA_CATEGORIES.map(renderCategoryTable).join('') + renderUnmappedTable();
 
-      window._coaOnCat = function () {
-        var sel = document.getElementById('coa-new-cat');
-        var cat = catById(sel.value);
-        document.getElementById('coa-new-group').innerHTML = groupOptionsHtml(cat.isPnL, '');
-        document.getElementById('coa-new-group-name').style.display = 'none';
-        document.getElementById('coa-new-group-name').value = '';
-      };
-      window._coaOnGroupSel = function () {
-        var v = document.getElementById('coa-new-group').value;
-        document.getElementById('coa-new-group-name').style.display = v === '__new__' ? 'block' : 'none';
-      };
-      window._coaCreate = onCreateAccount;
-
+      window._coaAddRow = onAddRow;
       container.querySelectorAll('[data-action="coa-save-row"]').forEach(function (btn) {
         btn.addEventListener('click', onSaveRow);
       });
       container.querySelectorAll('[data-action="coa-save-all"]').forEach(function (btn) {
         btn.addEventListener('click', onSaveAll);
+      });
+      container.querySelectorAll('[data-action="coa-remove-row"]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) { e.currentTarget.closest('tr').remove(); });
+      });
+      container.querySelectorAll('[data-role="newgroup"]').forEach(wireNewGroupSelect);
+    }
+
+    function wireNewGroupSelect(sel) {
+      sel.addEventListener('change', function () {
+        var row = sel.closest('tr');
+        var nameInput = row.querySelector('[data-role="newgroupname"]');
+        nameInput.style.display = sel.value === '__new__' ? 'block' : 'none';
       });
     }
 
@@ -219,22 +196,48 @@
         '</tr>';
     }
 
+    // Blank, not-yet-created row appended by "+ Add Account" — saved/created
+    // by saveRow() the same pass as existing edits when "Save All" is clicked.
+    function newAccountRowHtml(cat) {
+      return '<tr data-new="true" data-cat="' + esc(cat.id) + '" style="border-bottom:.5px solid #f3f4f6;background:#f8fafc;">' +
+        '<td style="padding:6px 8px;"><input data-role="name" type="text" placeholder="Account name" style="font-size:12px;width:100%;border:1px solid #e5e7eb;border-radius:4px;padding:3px 6px;" /></td>' +
+        '<td style="padding:6px 8px;">' +
+          '<select data-role="newgroup" style="width:100%;font-size:12px;">' + groupOptionsHtml(cat.isPnL, '') + '</select>' +
+          '<input data-role="newgroupname" type="text" placeholder="New group name" style="font-size:12px;width:100%;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px;margin-top:4px;display:none;" />' +
+        '</td>' +
+        '<td style="padding:6px 8px;font-size:12px;color:#6b7280;">' + esc(cat.label) + '</td>' +
+        '<td style="padding:6px 8px;"><button data-action="coa-remove-row" style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;padding:3px 8px;">✕</button></td>' +
+        '</tr>';
+    }
+
+    function onAddRow(tableId, catId) {
+      var table = document.getElementById(tableId);
+      var cat = catById(catId);
+      if (!table || !cat) return;
+      table.querySelector('tbody').insertAdjacentHTML('beforeend', newAccountRowHtml(cat));
+      var newRow = table.querySelector('tbody tr:last-child');
+      wireNewGroupSelect(newRow.querySelector('[data-role="newgroup"]'));
+      newRow.querySelector('[data-action="coa-remove-row"]').addEventListener('click', function (e) { e.currentTarget.closest('tr').remove(); });
+      newRow.querySelector('[data-role="name"]').focus();
+    }
+
     function renderCategoryTable(cat) {
       var accts = accountsForCategory(cat.id);
       var tableId = cat.id + '-tbl';
       var heading = '<h3 style="margin:16px 0 6px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:10px;">' +
         '<span>' + esc(cat.label) + '</span>' +
-        (accts.length ? '<button data-action="coa-save-all" data-table="' + tableId + '" style="font-size:11px;padding:3px 12px;border:1px solid #d1d5db;border-radius:5px;background:#fff;cursor:pointer;">Save All</button>' : '') +
+        '<button onclick="window._coaAddRow(\'' + tableId + '\',\'' + cat.id + '\')" style="font-size:11px;padding:3px 12px;border:1px solid #d1d5db;border-radius:5px;background:#fff;cursor:pointer;">+ Add Account</button>' +
+        '<button data-action="coa-save-all" data-table="' + tableId + '" style="font-size:11px;padding:3px 12px;border:1px solid #1a56db;border-radius:5px;background:#1a56db;color:#fff;cursor:pointer;">Save All</button>' +
         '</h3>';
-      if (!accts.length) return heading + '<p class="muted">No accounts mapped to ' + esc(cat.label.toLowerCase()) + ' yet.</p>';
       var rows = accts.map(function (a) { return categoryRow(cat, a); }).join('');
+      var emptyMsg = !accts.length ? '<tr><td colspan="4" style="padding:6px 8px;"><span class="muted">No accounts mapped to ' + esc(cat.label.toLowerCase()) + ' yet.</span></td></tr>' : '';
       return heading +
         '<div style="overflow-x:auto;margin-bottom:8px;"><table id="' + tableId + '" style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="font-size:11px;color:#9ca3af;">' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Account</th>' +
         '<th style="text-align:left;padding:5px 8px;font-weight:500;">Group</th>' +
         '<th style="padding:5px 8px;font-weight:500;">BIR Category</th>' +
-        '<th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+        '<th></th></tr></thead><tbody>' + rows + emptyMsg + '</tbody></table></div>';
     }
 
     function renderUnmappedTable() {
@@ -270,89 +273,16 @@
         '<th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
     }
 
-    async function onCreateAccount() {
-      var business = biz();
-      var msgEl = document.getElementById('coa-new-msg');
-      var name = (document.getElementById('coa-new-name').value || '').trim();
-      var code = (document.getElementById('coa-new-code').value || '').trim();
-      var catSel = document.getElementById('coa-new-cat');
-      var cat = catById(catSel.value);
-      var groupSel = document.getElementById('coa-new-group');
-      var groupVal = groupSel.value;
-      var newGroupName = (document.getElementById('coa-new-group-name').value || '').trim();
-
-      if (!name) { msgEl.innerHTML = '<span style="color:#c0392b;">Please enter an account name.</span>'; return; }
-      if (groupVal === '__new__' && !newGroupName) { msgEl.innerHTML = '<span style="color:#c0392b;">Please enter a name for the new group.</span>'; return; }
-
-      msgEl.innerHTML = '<span style="color:#6b7280;">Creating…</span>';
-      var landedNote = '';
-      try {
-        var masterGuid = NATIVE_MASTER_GROUP[cat.id] || null;
-        var groupGuid = groupVal;
-        if (groupVal === '__new__') {
-          var groupEndpoint = cat.isPnL ? '/api4/profit-and-loss-statement-group' : '/api4/balance-sheet-group';
-          // Nest the new group under its native Manager "father" (Asset/
-          // Liabilities/Revenue/Cost of Sales/Operating Expenses) when known,
-          // so it lands in the right section instead of defaulting to Equity.
-          var groupCreateValue = { name: newGroupName };
-          if (masterGuid) groupCreateValue.group = masterGuid;
-          var createdGroup = await apiRequest('POST', groupEndpoint, { business: business, value: groupCreateValue });
-          groupGuid = (createdGroup && (createdGroup.key || createdGroup.Key)) || null;
-          if (!groupGuid) {
-            // Manager's create response doesn't always echo the new key back —
-            // fall back to looking the group up by name in a fresh fetch.
-            invalidateAccountGroupsCache(business);
-            var freshGroups = await loadAccountGroups(business, true);
-            var foundGroup = (cat.isPnL ? freshGroups.pnl : freshGroups.bs)
-              .find(function (g) { return (g.name || '').toLowerCase() === newGroupName.toLowerCase(); });
-            groupGuid = foundGroup ? foundGroup.key : null;
-          }
-          if (!groupGuid) throw new Error('Could not create group');
-        } else if (!groupGuid && masterGuid) {
-          // No group picked — attach straight to the native master group
-          // instead of leaving it null (which Manager dumps under Equity).
-          groupGuid = masterGuid;
-        } else if (!groupGuid && !masterGuid) {
-          landedNote = ' Note: Manager has no fixed "father" group for ' + cat.label + ' wired up here yet — if it lands in the wrong section, move it under Settings ▸ Chart of Accounts in Manager.';
-        }
-
-        var acctEndpoint = cat.isPnL ? '/api4/profit-and-loss-statement-account' : '/api4/balance-sheet-account';
-        var acctValue = { name: name, group: groupGuid || null };
-        if (code) acctValue.code = code;
-        var createdAcct = await apiRequest('POST', acctEndpoint, { business: business, value: acctValue });
-        console.log('[COA] create account response:', createdAcct);
-        var acctGuid = (createdAcct && (createdAcct.key || createdAcct.Key)) || null;
-        if (!acctGuid) {
-          // Same fallback as groups: the POST succeeded (it shows up in Manager
-          // on refresh) but the response body didn't echo a key — look it up.
-          invalidateCoaCache(business);
-          var freshCoa = await loadChartOfAccounts(business, true);
-          var foundAcct = Object.values(freshCoa).find(function (a) {
-            return (a.name || '').toLowerCase() === name.toLowerCase() && a.isProfitAndLossAccount === cat.isPnL;
-          });
-          acctGuid = foundAcct ? foundAcct.key : null;
-        }
-        if (!acctGuid) throw new Error('Account may have been created in Manager, but could not be found to map it — please refresh and map it manually.');
-
-        coaMap[acctGuid] = cat.id;
-        await saveCoaMapping(business, coaMap);
-
-        document.getElementById('coa-new-name').value = '';
-        document.getElementById('coa-new-code').value = '';
-        invalidateCoaCache(business);
-        invalidateAccountGroupsCache(business);
-        await refresh();
-        msgEl ? null : null;
-        showToastSafe('✅ "' + name + '" created and mapped to ' + cat.label + '.' + landedNote);
-      } catch (err) {
-        msgEl.innerHTML = '<span style="color:#c0392b;">❌ ' + esc(err.message) + '</span>';
-      }
-    }
-
     // Shared by single-row Save and Save All: persists one row's name/category
-    // edit. mapDirty lets Save All batch the coaMap write into one call instead
-    // of one saveCoaMapping per row.
+    // edit, or creates a brand-new account (+ group, if "+ New group..." was
+    // picked) for rows added via "+ Add Account". mapDirty lets Save All batch
+    // the coaMap write into one call instead of one saveCoaMapping per row.
     async function saveRow(business, row, mapDirty) {
+      if (row.dataset.new === 'true') {
+        await createRow(business, row, mapDirty);
+        return;
+      }
+
       var guid = row.dataset.key;
       var acct = coa[guid];
       if (!acct) return;
@@ -377,6 +307,60 @@
       }
     }
 
+    // Creates a new account (and optionally a new group) for a blank row
+    // added via "+ Add Account". Manager requires every account to belong to
+    // a real group/subgroup -- it can't attach directly to the Asset/
+    // Liabilities/Equity/etc. "father" groups, or it silently lands under
+    // Equity > Uncategorized -- so a real group selection (or a freshly
+    // created one) is mandatory here.
+    async function createRow(business, row, mapDirty) {
+      var cat = catById(row.dataset.cat);
+      var name = (row.querySelector('[data-role="name"]').value || '').trim();
+      var groupSel = row.querySelector('[data-role="newgroup"]');
+      var groupVal = groupSel.value;
+      var newGroupName = (row.querySelector('[data-role="newgroupname"]').value || '').trim();
+      if (!cat) return;
+      if (!name) throw new Error('Please enter an account name for "' + cat.label + '".');
+      if (groupVal === '__new__' && !newGroupName) throw new Error('Please enter a name for the new group under "' + cat.label + '".');
+      if (!groupVal) throw new Error('Please pick a Group for "' + name + '", or choose "+ New group...".');
+
+      var masterGuid = NATIVE_MASTER_GROUP[cat.id] || null;
+      var groupGuid = groupVal;
+      if (groupVal === '__new__') {
+        var groupEndpoint = cat.isPnL ? '/api4/profit-and-loss-statement-group' : '/api4/balance-sheet-group';
+        var groupCreateValue = { name: newGroupName };
+        if (masterGuid) groupCreateValue.group = masterGuid;
+        var createdGroup = await apiRequest('POST', groupEndpoint, { business: business, value: groupCreateValue });
+        groupGuid = (createdGroup && (createdGroup.key || createdGroup.Key)) || null;
+        if (!groupGuid) {
+          invalidateAccountGroupsCache(business);
+          var freshGroups = await loadAccountGroups(business, true);
+          var foundGroup = (cat.isPnL ? freshGroups.pnl : freshGroups.bs)
+            .find(function (g) { return (g.name || '').toLowerCase() === newGroupName.toLowerCase(); });
+          groupGuid = foundGroup ? foundGroup.key : null;
+        }
+        if (!groupGuid) throw new Error('Could not create group "' + newGroupName + '".');
+        invalidateAccountGroupsCache(business);
+        groups = await loadAccountGroups(business, true);
+      }
+
+      var acctEndpoint = cat.isPnL ? '/api4/profit-and-loss-statement-account' : '/api4/balance-sheet-account';
+      var createdAcct = await apiRequest('POST', acctEndpoint, { business: business, value: { name: name, group: groupGuid } });
+      var acctGuid = (createdAcct && (createdAcct.key || createdAcct.Key)) || null;
+      if (!acctGuid) {
+        invalidateCoaCache(business);
+        var freshCoa = await loadChartOfAccounts(business, true);
+        var foundAcct = Object.values(freshCoa).find(function (a) {
+          return (a.name || '').toLowerCase() === name.toLowerCase() && a.isProfitAndLossAccount === cat.isPnL;
+        });
+        acctGuid = foundAcct ? foundAcct.key : null;
+      }
+      if (!acctGuid) throw new Error('"' + name + '" may have been created in Manager, but could not be found to map it — please refresh and map it manually.');
+
+      invalidateCoaCache(business);
+      mapDirty[acctGuid] = cat.id;
+    }
+
     async function onSaveRow(e) {
       var btn = e.currentTarget;
       var row = btn.closest('tr');
@@ -391,6 +375,7 @@
       } catch (err) {
         console.error(err);
         flash(btn, false);
+        alert(err.message);
       }
     }
 
@@ -414,6 +399,7 @@
         console.error(err);
         flash(btn, false);
         btn.disabled = false;
+        alert(err.message);
       }
     }
 
