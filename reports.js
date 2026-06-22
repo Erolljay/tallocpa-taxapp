@@ -97,7 +97,7 @@ const REPORTS = [
   {
     id: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4',
     name: 'BIR Form 2307 – Certificate of Creditable WT',
-    file: 'tallo-2307.html',
+    file: '2307.html',
     group: 'Expanded Withholding Tax',
     req: 'expanded',
     phase: 1,
