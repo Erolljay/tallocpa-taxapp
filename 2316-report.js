@@ -280,6 +280,14 @@ function render2316Cert(emp, monthly, months, setup, year) {
         </div>
       </div>
 
+      <div class="f2316-declaration">
+        I/We declare, under the penalties of perjury that this certificate has been made in good faith, verified by me/us,
+        and to the best of my/our knowledge and belief, is true and correct, pursuant to the provisions of the National
+        Internal Revenue Code, as amended, and the regulations issued under authority thereof. Further, I/we give my/our
+        consent to the processing of my/our information as contemplated under the *Data Privacy Act of 2012 (R.A. No. 10173)
+        for legitimate and lawful purposes.
+      </div>
+
       <div class="f2316-sig2">
         <div class="f2316-sig-row">
           <div class="f2316-sig-block">
