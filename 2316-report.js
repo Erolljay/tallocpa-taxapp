@@ -283,36 +283,26 @@ function render2316Cert(emp, monthly, months, setup, year) {
       <div class="f2316-sig2">
         <div class="f2316-sig-row">
           <div class="f2316-sig-block">
-            ${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}
-            <div class="line">${escHtml(setup.authRep || '')}</div>
+            <div class="line">${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}<span class="name-text">${escHtml(setup.authRep || '')}</span></div>
             <div class="cap"><strong>53</strong><br>Present Employer/Authorized Agent Signature over Printed Name</div>
           </div>
-          <div class="f2316-sig-date">
-            <span>Date Signed</span>
-            <div class="date-boxes">${dateBoxes()}</div>
-          </div>
+          <div class="f2316-sig-date">Date Signed: <span class="date-fill"></span></div>
         </div>
 
         <div class="f2316-conforme">CONFORME:</div>
 
         <div class="f2316-sig-row">
           <div class="f2316-sig-block">
-            <div class="line">${escHtml(name || '')}</div>
+            <div class="line"><span class="name-text">${escHtml(name || '')}</span></div>
             <div class="cap"><strong>54</strong><br>Employee Signature over Printed Name</div>
           </div>
-          <div class="f2316-sig-date">
-            <span>Date Signed</span>
-            <div class="date-boxes">${dateBoxes()}</div>
-          </div>
+          <div class="f2316-sig-date">Date Signed: <span class="date-fill"></span></div>
         </div>
 
         <div class="f2316-ctc-row">
           <div class="ctc-field">CTC/Valid ID No.<br>of Employee<span class="fill"></span></div>
           <div class="ctc-field">Place of<br>Issue<span class="fill"></span></div>
-          <div class="ctc-date">
-            <span>Date Issued</span>
-            <div class="date-boxes">${dateBoxes()}</div>
-          </div>
+          <div class="ctc-date">Date Issued: <span class="date-fill"></span></div>
           <div class="ctc-amount">Amount paid, if CTC<span class="fill"></span></div>
         </div>
       </div>
@@ -324,8 +314,7 @@ function render2316Cert(emp, monthly, months, setup, year) {
             I declare, under the penalties of perjury that the information herein stated are reported under
             BIR Form No. 1604-C which has been filed with the Bureau of Internal Revenue.
             <div class="f2316-sig-block">
-              ${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}
-            <div class="line">${escHtml(setup.authRep || '')}</div>
+              <div class="line">${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}<span class="name-text">${escHtml(setup.authRep || '')}</span></div>
               <div class="cap"><strong>55</strong><br>Present Employer/Authorized Agent Signature over Printed Name<br>(Head of Accounting/Human Resource or Authorized Representative)</div>
             </div>
           </div>
@@ -337,7 +326,7 @@ function render2316Cert(emp, monthly, months, setup, year) {
             that BIR Form No. 2316 shall serve the same purpose as if BIR Form No. 1700 has been filed pursuant to the
             provisions of Revenue Regulations (RR) No. 3-2002, as amended.
             <div class="f2316-sig-block">
-              <div class="line">${escHtml(name || '')}</div>
+              <div class="line"><span class="name-text">${escHtml(name || '')}</span></div>
               <div class="cap"><strong>56</strong><br>Employee Signature over Printed Name</div>
             </div>
           </div>
@@ -346,8 +335,4 @@ function render2316Cert(emp, monthly, months, setup, year) {
 
       <div class="f2316-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph)</div>
     </div>`;
-}
-
-function dateBoxes(n = 8) {
-  return Array.from({ length: n }, () => '<span class="dbox"></span>').join('');
 }
