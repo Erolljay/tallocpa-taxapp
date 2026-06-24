@@ -410,7 +410,7 @@ function renderTaxCodesOutput(biz, out) {
 //            2 = CustomRate (real percentage, e.g. 12)
 //   type:    0 = SingleRate (the only type this app creates)
 function taxRateEnum(group, managerRate) {
-  if (group === 'EWT' || group === 'GOVT' || group === 'FWT') return 1;
+  if (group === 'EWT' || group === 'GOVT' || group === 'FWT') return 0;
   return managerRate > 0 ? 2 : 0;
 }
 
