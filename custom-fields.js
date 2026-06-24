@@ -34,7 +34,10 @@
     // [17-18] Authorized Rep
     { id: 'b1r00001-0000-4000-a000-000000000014', label: 'Authorized Rep Name',      type: 'text',   placeholder: 'Full name of signatory' },
     { id: 'b1r00001-0000-4000-a000-000000000022', label: 'Authorized Rep Title',     type: 'text',   placeholder: 'e.g. President / Treasurer' },
+    { id: 'b1r00001-0000-4000-a000-000000000023', label: 'Authorized Rep e-Signature', type: 'image', help: 'PNG or JPEG, max ' + Math.round(150) + ' KB. Appears on 2307 and 2316 signature lines.' },
   ];
+
+  var MAX_SIGNATURE_BYTES = 150 * 1024; // 150 KB raw file size cap
 
   var PARTY_FIELDS = [
     { id: 'b1r00002-0000-4000-a000-000000000001', label: 'Taxpayer Type',    type: 'select', options: ['', 'Non-Individual', 'Individual'], labels: ['-- select --', 'Non-Individual / Corporation', 'Individual'] },
@@ -132,6 +135,15 @@
     }
     if (field.type === 'date') {
       return '<input id="' + inputId + '" type="date" class="form-input" value="' + esc(value) + '" data-cf-id="' + field.id + '">';
+    }
+    if (field.type === 'image') {
+      var imgId = inputId + '-preview';
+      var preview = '<img id="' + imgId + '" src="' + esc(value || '') + '" style="max-height:60px;max-width:220px;border:1px solid #e5e7eb;border-radius:4px;display:' + (value ? 'block' : 'none') + ';margin-bottom:6px;background:#fff;">';
+      return preview +
+        '<input id="' + inputId + '" type="hidden" data-cf-id="' + field.id + '" value="' + esc(value || '') + '">' +
+        '<input type="file" accept="image/png,image/jpeg" class="form-input" onchange="window.cfHandleImageUpload(this, \'' + inputId + '\', \'' + imgId + '\')">' +
+        '<div id="' + inputId + '-err" style="font-size:10px;color:#c0392b;margin-top:2px;"></div>' +
+        '<button type="button" style="margin-top:4px;font-size:11px;" onclick="window.cfClearImage(\'' + inputId + '\', \'' + imgId + '\')">Remove signature</button>';
     }
     return '<input id="' + inputId + '" type="text" class="form-input" placeholder="' + esc(field.placeholder || '') + '" value="' + esc(value) + '" data-cf-id="' + field.id + '">';
   }
@@ -267,6 +279,9 @@
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">' +
           renderField(BF('b1r00001-0000-4000-a000-000000000014'), val('b1r00001-0000-4000-a000-000000000014'), 'biz') +
           renderField(BF('b1r00001-0000-4000-a000-000000000022'), val('b1r00001-0000-4000-a000-000000000022'), 'biz') +
+        '</div>' +
+        '<div style="margin-top:6px;">' +
+          renderField(BF('b1r00001-0000-4000-a000-000000000023'), val('b1r00001-0000-4000-a000-000000000023'), 'biz') +
         '</div>';
 
       container.innerHTML =
@@ -314,10 +329,28 @@
       if (status) status.textContent = '';
 
       var birBlob = {};
+      var sizeError = '';
       BUSINESS_FIELDS.forEach(function(f) {
         var el = container.querySelector('[data-cf-id="' + f.id + '"]');
-        if (el) birBlob[f.id] = el.value || '';
+        if (!el) return;
+        var v = el.value || '';
+        if (f.type === 'image' && v) {
+          // base64 data URI is ~37% larger than raw bytes
+          var approxBytes = Math.floor(v.length * 0.75);
+          if (approxBytes > MAX_SIGNATURE_BYTES) {
+            sizeError = 'Signature image exceeds ' + Math.round(MAX_SIGNATURE_BYTES / 1024) + ' KB — please upload a smaller image.';
+            return;
+          }
+        }
+        birBlob[f.id] = v;
       });
+
+      if (sizeError) {
+        btn.disabled = false;
+        btn.textContent = 'Save Business Info';
+        if (status) { status.textContent = sizeError; status.style.color = '#c0392b'; }
+        return;
+      }
 
       var managerOk = false;
       try {
@@ -963,6 +996,41 @@
   }
 
   // ---- GLOBAL HELPERS ----
+
+  window.cfHandleImageUpload = function(fileInput, hiddenId, imgId) {
+    var hidden = document.getElementById(hiddenId);
+    var img = document.getElementById(imgId);
+    var errEl = document.getElementById(hiddenId + '-err');
+    if (errEl) errEl.textContent = '';
+    var file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    if (!/^image\/(png|jpe?g)$/.test(file.type)) {
+      if (errEl) errEl.textContent = 'Only PNG or JPEG images are allowed.';
+      fileInput.value = '';
+      return;
+    }
+    if (file.size > MAX_SIGNATURE_BYTES) {
+      if (errEl) errEl.textContent = 'Image is too large (' + Math.round(file.size / 1024) + ' KB). Max size is ' + Math.round(MAX_SIGNATURE_BYTES / 1024) + ' KB.';
+      fileInput.value = '';
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function() {
+      if (hidden) hidden.value = reader.result;
+      if (img) { img.src = reader.result; img.style.display = 'block'; }
+    };
+    reader.onerror = function() {
+      if (errEl) errEl.textContent = 'Could not read file.';
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window.cfClearImage = function(hiddenId, imgId) {
+    var hidden = document.getElementById(hiddenId);
+    var img = document.getElementById(imgId);
+    if (hidden) hidden.value = '';
+    if (img) { img.src = ''; img.style.display = 'none'; }
+  };
 
   window.cfPartyToggle = function(sel) {
     var tr = sel.closest('tr');

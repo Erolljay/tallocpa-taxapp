@@ -286,9 +286,9 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
 
   const fromStr = fmtDateMDY(start);
   const toStr   = fmtDateMDY(end);
-  const repLine = setup.authRep
-    ? [setup.authRep, setup.authRepTitle].filter(Boolean).join(' - ')
-    : '';
+  const repName  = setup.authRep || '';
+  const repTitle = setup.authRepTitle || '';
+  const repSig   = setup.authRepSignature || '';
 
   return `
   <div class="bir-form">
@@ -390,10 +390,10 @@ function renderCertificate(suppKey, atcMap, start, end, setup, periodLabel) {
     </div>
 
     <div class="sig-area">
-      <div class="sig-line"></div>
-      ${repLine ? `<strong>${escHtml(repLine)}</strong><br>` : ''}
+      <div class="sig-line">${repSig ? `<img src="${repSig}" alt="Signature" style="max-height:34px;max-width:180px;">` : ''}</div>
+      ${repName ? `<strong>${escHtml(repName)}</strong><br>` : ''}
       Signature over Printed Name of Payor/Payor's Authorized Representative/Tax Agent<br>
-      <span class="sig-sub">(Indicate Title/Designation and TIN)</span>
+      <span class="sig-sub">${repTitle ? escHtml(repTitle) : '(Indicate Title/Designation and TIN)'}</span>
     </div>
     <div class="sig-meta-row">
       <div class="bir-cell w50">Tax Agent Accreditation No./Attorney's Roll No. (if applicable)</div>

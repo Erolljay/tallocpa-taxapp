@@ -21,9 +21,12 @@ async function init2316Tab(biz, setup) {
       ${years.map(y => `<option value="${y}"${y === now.getFullYear() - 1 ? ' selected' : ''}>${y}</option>`).join('')}
     </select>
     <label>Employees</label>
-    <select id="f2316-employee" multiple style="min-width:220px; height:60px;">
-      <option value="__all__" selected>All employees</option>
-    </select>
+    <span style="display:inline-flex; flex-direction:column; gap:2px;">
+      <input type="text" id="f2316-employee-search" placeholder="Type to filter…" style="min-width:220px;">
+      <select id="f2316-employee" multiple style="min-width:220px; height:60px;">
+        <option value="__all__" selected>All employees</option>
+      </select>
+    </span>
     <button class="btn btn-primary" id="f2316-gen">⚡ Generate</button>
     <button class="btn btn-outline" id="f2316-print" style="display:none;" onclick="window.print()">🖨 Print</button>
   `;
@@ -43,6 +46,13 @@ async function init2316Tab(biz, setup) {
       const all = sel.querySelector('option[value="__all__"]');
       const others = [...sel.options].filter(o => o.value !== '__all__');
       if (all.selected) others.forEach(o => o.selected = false);
+    });
+    document.getElementById('f2316-employee-search').addEventListener('input', (e) => {
+      const term = e.target.value.trim().toLowerCase();
+      [...sel.options].forEach(o => {
+        if (o.value === '__all__') return;
+        o.hidden = term && !o.textContent.toLowerCase().includes(term);
+      });
     });
   } catch (e) {
     console.warn('2316: could not load employees', e.message);
@@ -270,13 +280,74 @@ function render2316Cert(emp, monthly, months, setup, year) {
         </div>
       </div>
 
-      <div class="f2316-sig">
-        I/We declare, under the penalties of perjury, that this certificate has been made in good faith, verified by me/us, and to the
-        best of my/our knowledge and belief, is true and correct, pursuant to the National Internal Revenue Code, as amended.
-        <div style="display:flex;justify-content:space-between;margin-top:8px;">
-          <div class="line">53 Present Employer/Authorized Agent Signature over Printed Name</div>
-          <div class="line">54 Employee Signature over Printed Name (CONFORME)</div>
+      <div class="f2316-sig2">
+        <div class="f2316-sig-row">
+          <div class="f2316-sig-block">
+            ${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}
+            <div class="line">${escHtml(setup.authRep || '')}</div>
+            <div class="cap"><strong>53</strong><br>Present Employer/Authorized Agent Signature over Printed Name</div>
+          </div>
+          <div class="f2316-sig-date">
+            <span>Date Signed</span>
+            <div class="date-boxes">${dateBoxes()}</div>
+          </div>
+        </div>
+
+        <div class="f2316-conforme">CONFORME:</div>
+
+        <div class="f2316-sig-row">
+          <div class="f2316-sig-block">
+            <div class="line">${escHtml(name || '')}</div>
+            <div class="cap"><strong>54</strong><br>Employee Signature over Printed Name</div>
+          </div>
+          <div class="f2316-sig-date">
+            <span>Date Signed</span>
+            <div class="date-boxes">${dateBoxes()}</div>
+          </div>
+        </div>
+
+        <div class="f2316-ctc-row">
+          <div class="ctc-field">CTC/Valid ID No.<br>of Employee<span class="fill"></span></div>
+          <div class="ctc-field">Place of<br>Issue<span class="fill"></span></div>
+          <div class="ctc-date">
+            <span>Date Issued</span>
+            <div class="date-boxes">${dateBoxes()}</div>
+          </div>
+          <div class="ctc-amount">Amount paid, if CTC<span class="fill"></span></div>
         </div>
       </div>
+
+      <div class="f2316-subfiling">
+        <div class="f2316-subfiling-title">To be accomplished under substituted filing</div>
+        <div class="f2316-subfiling-cols">
+          <div class="f2316-subfiling-col">
+            I declare, under the penalties of perjury that the information herein stated are reported under
+            BIR Form No. 1604-C which has been filed with the Bureau of Internal Revenue.
+            <div class="f2316-sig-block">
+              ${setup.authRepSignature ? `<img class="sig-img" src="${setup.authRepSignature}" alt="Signature">` : ''}
+            <div class="line">${escHtml(setup.authRep || '')}</div>
+              <div class="cap"><strong>55</strong><br>Present Employer/Authorized Agent Signature over Printed Name<br>(Head of Accounting/Human Resource or Authorized Representative)</div>
+            </div>
+          </div>
+          <div class="f2316-subfiling-col">
+            I declare, under the penalties of perjury that I am qualified under substituted filing of Income Tax Return
+            (BIR Form No. 1700), since I received purely compensation income from only one employer in the Philippines
+            for the calendar year; that taxes have been correctly withheld by my employer (tax due equals tax withheld);
+            that the BIR Form No. 1604-C filed by my employer to the BIR shall constitute as my income tax return; and
+            that BIR Form No. 2316 shall serve the same purpose as if BIR Form No. 1700 has been filed pursuant to the
+            provisions of Revenue Regulations (RR) No. 3-2002, as amended.
+            <div class="f2316-sig-block">
+              <div class="line">${escHtml(name || '')}</div>
+              <div class="cap"><strong>56</strong><br>Employee Signature over Printed Name</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="f2316-note">*NOTE: The BIR Data Privacy is in the BIR website (www.bir.gov.ph)</div>
     </div>`;
+}
+
+function dateBoxes(n = 8) {
+  return Array.from({ length: n }, () => '<span class="dbox"></span>').join('');
 }

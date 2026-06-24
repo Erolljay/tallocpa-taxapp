@@ -431,6 +431,7 @@ const BIZ_GUIDS = {
   zipCode:       'b1r00001-0000-4000-a000-000000000003',
   authRep:       'b1r00001-0000-4000-a000-000000000014',
   authRepTitle:  'b1r00001-0000-4000-a000-000000000022',
+  authRepSignature: 'b1r00001-0000-4000-a000-000000000023',
 };
 
 const PARTY_GUIDS = {
@@ -477,6 +478,7 @@ async function loadSetup(biz) {
       zipCode:  cf[BIZ_GUIDS.zipCode]       || '',
       authRep:  cf[BIZ_GUIDS.authRep]       || '',
       authRepTitle: cf[BIZ_GUIDS.authRepTitle] || '',
+      authRepSignature: cf[BIZ_GUIDS.authRepSignature] || '',
       vatMapping: readMapping(model, 'vatMapping'),
       ewtMapping: readMapping(model, 'ewtMapping'),
     };

@@ -89,8 +89,32 @@
   .f2316-item .amt { font-weight:600; font-family:monospace; min-width:90px; text-align:right; }
   .f2316-item.total { border-top:1px solid #000; border-bottom:1px solid #000; font-weight:700; margin-top:2px; }
   .f2316-mwe-box { border:1px solid #000; padding:4px; margin:6px 0; font-size:9.5px; }
-  .f2316-sig { margin-top:14px; font-size:9px; border-top:1px solid #000; padding-top:6px; }
-  .f2316-sig .line { border-top:1px solid #000; width:260px; margin-top:18px; text-align:center; padding-top:2px; }
+
+  .f2316-sig2 { margin-top:14px; font-size:8.5px; }
+  .f2316-sig-row { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; border-top:1px solid #000; padding-top:14px; margin-top:6px; }
+  .f2316-sig-block { flex:1; }
+  .f2316-sig-block .sig-img { display:block; max-height:28px; max-width:200px; margin:0 auto -6px; }
+  .f2316-sig-block .line { border-top:1px solid #000; width:300px; margin-bottom:2px; }
+  .f2316-sig-block .cap { text-align:center; width:300px; line-height:1.2; }
+  .f2316-conforme { font-weight:700; margin-top:10px; }
+  .date-boxes { display:flex; gap:2px; margin-top:2px; }
+  .date-boxes .dbox { display:inline-block; width:12px; height:14px; border:1px solid #000; }
+  .f2316-sig-date { display:flex; flex-direction:column; align-items:flex-start; gap:0; flex:0 0 auto; }
+  .f2316-ctc-row { display:flex; gap:14px; align-items:flex-end; border-top:1px solid #000; padding-top:6px; margin-top:10px; flex-wrap:wrap; }
+  .f2316-ctc-row .ctc-field { flex:1; min-width:140px; }
+  .f2316-ctc-row .fill { display:inline-block; border-bottom:1px solid #000; width:100%; min-width:90px; height:12px; vertical-align:bottom; margin-left:4px; }
+  .f2316-ctc-row .ctc-date { flex:0 0 auto; }
+  .f2316-ctc-row .ctc-amount { flex:0 0 140px; text-align:right; }
+
+  .f2316-subfiling { margin-top:10px; border:1px solid #000; font-size:8px; }
+  .f2316-subfiling-title { text-align:center; font-weight:700; border-bottom:1px solid #000; padding:2px 0; }
+  .f2316-subfiling-cols { display:grid; grid-template-columns:1fr 1fr; }
+  .f2316-subfiling-col { padding:6px 8px; border-left:1px solid #000; }
+  .f2316-subfiling-col:first-child { border-left:none; }
+  .f2316-subfiling-col .f2316-sig-block { margin-top:18px; }
+  .f2316-subfiling-col .f2316-sig-block .line { width:100%; }
+  .f2316-subfiling-col .f2316-sig-block .cap { width:100%; }
+  .f2316-note { font-size:7.5px; font-style:italic; margin-top:4px; }
 </style>
 <script src="shared.js"></script>
 <script src="custom-fields.js"></script>
