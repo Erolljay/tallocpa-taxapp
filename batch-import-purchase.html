@@ -42,10 +42,11 @@
   </div>
 
   <div class="alert alert-info" style="margin-bottom:14px;">
-    ℹ️ This tool posts <strong>directly to Manager</strong> via its API — no manual upload needed. For each row:
-    a missing Supplier is auto-created (name only), then the Purchase Invoice is created, then (for rows marked
-    "Paid Same Day") a matching Payment is created that settles that invoice. Review the row-by-row results after
-    posting — if a row fails, fix the source data and click "Post to Manager" again to retry just the failed rows.
+    ℹ️ This tool posts <strong>directly to Manager</strong> via its API — no manual upload needed. Each row's Supplier
+    name is matched against existing contacts; if it looks like a possible duplicate, the preview lets you pick the
+    matching contact (or confirm it's new) right there. The Purchase Invoice is then created, then (for rows marked
+    "Paid Same Day") a matching Payment that settles it. Review the row-by-row results after posting — if a row
+    fails, fix the source data and click "Post to Manager" again to retry just the failed rows.
   </div>
 
   <div id="bi-output"></div>

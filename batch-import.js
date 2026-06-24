@@ -120,6 +120,60 @@ function ensureExcelJS(cb) {
   document.head.appendChild(s);
 }
 
+// ── PARTY DEDUP HELPERS ─────────────────────────────────────────
+// Strips punctuation/whitespace and common entity suffixes so
+// "ABC Trading Co." / "ABC Trading, Co" / "abc trading" all normalize the
+// same way for matching against existing Manager contacts.
+const BI_ENTITY_SUFFIXES = /\b(incorporated|inc|corporation|corp|company|co|ltd|llc)\b\.?/g;
+function normalizePartyName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/[.,'"()\-]/g, ' ')
+    .replace(BI_ENTITY_SUFFIXES, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function normalizeTin(tin) {
+  return (tin || '').replace(/\D/g, '');
+}
+// Standard edit-distance, used to flag near-duplicate names (typos,
+// missing/extra words) rather than silently treating them as new contacts.
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const prev = new Array(n + 1);
+  const cur = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      cur[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1]
+        : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = cur[j];
+  }
+  return prev[n];
+}
+// Returns existing parties whose normalized name is close enough to be a
+// likely duplicate of `normName`, best match first.
+function findNearDupCandidates(normName, cache, max = 3) {
+  if (!normName) return [];
+  const threshold = normName.length <= 6 ? 1 : (normName.length <= 12 ? 2 : 3);
+  const scored = [];
+  for (const p of cache.partyList) {
+    if (p.normName === normName) continue; // exact normalized matches are handled separately
+    if (Math.abs(p.normName.length - normName.length) > threshold + 2) continue;
+    const dist = levenshtein(normName, p.normName);
+    if (dist <= threshold || p.normName.includes(normName) || normName.includes(p.normName)) {
+      scored.push({ key: p.key, name: p.name, dist });
+    }
+  }
+  return scored.sort((a, b) => a.dist - b.dist).slice(0, max);
+}
+
 function colLetter(n) {
   let s = '';
   while (n > 0) {
@@ -161,7 +215,7 @@ function downloadTemplate() {
       '5. Withholding amounts (CWT, WV, Withholding Tax) — enter as a positive number; they are recorded as deductions automatically.',
       '6. "Paid Same Day" — enter Yes only if the invoice was settled in cash/bank on the same day; otherwise leave it as No.',
       '7. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
-      '8. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post.',
+      `8. When done, go back to the app, choose "Upload" and select this file, then click Validate before Post. If the ${BI_PARTY_LABEL} name on a row looks like a possible duplicate of an existing contact, the preview will flag it and let you pick the matching contact (or confirm it's new) right there — no need to edit the file and re-upload.`,
     ];
     steps.forEach(s => { const row = instr.addRow([s]); row.font = { size: 11 }; row.alignment = { wrapText: true }; });
 
@@ -427,7 +481,7 @@ async function buildLookupCache(biz) {
     return _biCache;
   }
 
-  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties] = await Promise.all([
+  const [taxCodes, bsAccounts, plAccounts, bankCashAccounts, apControlAccounts, arControlAccounts, parties, partyBIR] = await Promise.all([
     fetchManagerTaxCodes(biz),
     fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
@@ -435,6 +489,7 @@ async function buildLookupCache(biz) {
     fetchAllBatch('/api4/accounts-payable-control-account-batch', biz).catch(() => []),
     fetchAllBatch('/api4/accounts-receivable-control-account-batch', biz).catch(() => []),
     fetchAllBatch(BI_IS_SALE ? '/api4/customer-batch' : '/api4/supplier-batch', biz),
+    loadPartyBIR(biz, BI_IS_SALE ? 'customer' : 'supplier').catch(() => ({})),
   ]);
   const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts, ...apControlAccounts, ...arControlAccounts];
   const accountList = accounts.map(row => {
@@ -443,6 +498,19 @@ async function buildLookupCache(biz) {
   }).filter(a => a.name && a.key);
   const taxCodeKeyByName = new Map(taxCodes.map(tc => [tc.name.trim().toLowerCase(), tc.key]));
   const accountKeyByName = keyMap(accounts);
+
+  // Party list with normalized names (for fuzzy near-duplicate matching).
+  // TIN is pulled in for display only — the batch template has no TIN column
+  // (TIN is maintained per-contact on the Customers/Suppliers BIR tab), so it
+  // can't be used to match an import row, but showing it alongside a
+  // near-duplicate candidate helps the bookkeeper confirm it's the same party.
+  const partyList = parties.map(row => {
+    const d = row?.item || row?.value || row || {};
+    const name = (d.name || d.Name || '').trim();
+    const key = row?.key || row?.Key || d.key || '';
+    return { key, name, normName: normalizePartyName(name), tin: (partyBIR || {})[key]?.tin || '' };
+  }).filter(p => p.key && p.name);
+  const partyKeyByNormName = new Map(partyList.map(p => [p.normName, p.key]).filter(([n]) => n));
   // TEMP: hardcoded fallback for the test business while we confirm the
   // line.account theory — replace with a per-business dynamic lookup once
   // we find Manager's real endpoint for these control accounts.
@@ -460,6 +528,8 @@ async function buildLookupCache(biz) {
     accountKeyByName,
     accountList,
     partyKeyByName: keyMap(parties),
+    partyKeyByNormName,
+    partyList,
     apAccountKey,
     arAccountKey,
   };
@@ -549,6 +619,20 @@ function parsePayrollRow(r, idx, cache) {
   return row;
 }
 
+// Resolves a row's typed party name against existing Manager contacts:
+// exact name match (original behavior) -> normalized-name match (handles
+// punctuation/suffix differences) -> fuzzy near-duplicate candidates the
+// bookkeeper must confirm. Mutates `row` with the result.
+function resolvePartyMatch(row, cache) {
+  if (!row.partyName) { row.partyMissing = false; row.resolvedPartyKey = null; row.nearDupCandidates = []; return; }
+  const lname = row.partyName.trim().toLowerCase();
+  const normName = normalizePartyName(row.partyName);
+  const exactKey = cache.partyKeyByName.get(lname) || cache.partyKeyByNormName.get(normName) || null;
+  row.resolvedPartyKey = exactKey;
+  row.partyMissing = !exactKey;
+  row.nearDupCandidates = exactKey ? [] : findNearDupCandidates(normName, cache);
+}
+
 function checkAccount(errors, label, acctName, cache) {
   if (cache.accountKeyByName.size && !cache.accountKeyByName.has(acctName.trim().toLowerCase())) {
     errors.push(`${label} account "${acctName}" not found in Manager — check spelling against the Chart of Accounts sheet`);
@@ -635,7 +719,7 @@ function parseSaleRow(r, idx, cache) {
   if (!row.partyName) errors.push(`${BI_PARTY_LABEL} name is blank`);
   if (vatable === 0 && exempt === 0 && zeroRated === 0) errors.push(`No sales amount entered (VATable / VAT Exempt / Zero-Rated Sales)`);
 
-  row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
+  resolvePartyMatch(row, cache);
 
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
@@ -645,7 +729,7 @@ function parseSaleRow(r, idx, cache) {
   }
 
   row.errors = errors;
-  row.status = errors.length ? 'error' : (row.partyMissing ? 'warn' : 'ok');
+  row.status = errors.length ? 'error' : ((row.partyMissing) ? 'warn' : 'ok');
   row.posted = false;
   return row;
 }
@@ -716,7 +800,7 @@ function parsePurchaseRow(r, idx, cache) {
   if (!row.partyName) errors.push(`${BI_PARTY_LABEL} name is blank`);
   if (!hasCategoryAmount) errors.push(`No purchase amount entered (Capital Goods / Other Goods / Services / Zero-Rated / Exempt)`);
 
-  row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
+  resolvePartyMatch(row, cache);
 
   if (row.paid) {
     if (!row.paidAmount) errors.push(`Paid = Yes but Paid Amount is blank`);
@@ -742,11 +826,11 @@ function renderPreview() {
     <tr class="row-${r.status}" id="bi-row-${i}">
       <td>${r.rowNum}</td>
       <td>${escHtml(r.date)}</td>
-      <td>${escHtml(r.partyName)}${r.partyMissing ? ' <span style="color:#92400e;">(will create)</span>' : ''}</td>
+      <td>${escHtml(r.partyName)}${r.partyMissing ? ' <span style="color:#92400e;">(new)</span>' : ''}</td>
       <td>${escHtml(r.reference)}</td>
       <td>${r.lines.map(l => `${escHtml(l.acctName)}: ${fmt(l.amount)}${l.tcName ? ' ['+escHtml(l.tcName)+']' : ''}`).join('<br>')}</td>
       <td>${r.paid ? `Yes — ${fmt(r.paidAmount)} on ${escHtml(r.paidDate)} (${escHtml(r.paymentAccount)})` : 'No'}</td>
-      <td class="bi-status-cell">${r.errors.length ? `<div class="bi-err">${r.errors.map(escHtml).join('<br>')}</div>` : (r.partyMissing ? '⚠️ New contact' : '✅ OK')}</td>
+      <td class="bi-status-cell">${statusCellHtml(r, i)}</td>
     </tr>`).join('');
 
   out.innerHTML = `
@@ -764,7 +848,31 @@ function renderPreview() {
     </div>
     <div id="bi-post-summary"></div>`;
 
+  out.querySelectorAll('.bi-party-pick').forEach(sel => sel.addEventListener('change', onPartyPickChange));
   document.getElementById('bi-post').style.display = okCount > 0 ? '' : 'none';
+}
+
+// Renders the Status cell. Rows whose party name doesn't exactly match an
+// existing contact but is a close match to one (typo, punctuation, missing
+// suffix, etc.) get a picker so the bookkeeper resolves it right here,
+// instead of editing the spreadsheet and re-uploading.
+function statusCellHtml(r, i) {
+  if (r.errors.length) return `<div class="bi-err">${r.errors.map(escHtml).join('<br>')}</div>`;
+  if (!r.partyMissing) return '✅ OK';
+  if (!r.nearDupCandidates.length) return `⚠️ New ${BI_PARTY_LABEL.toLowerCase()}`;
+  const chosen = r.userPartyChoice || 'new';
+  const opts = [`<option value="new"${chosen === 'new' ? ' selected' : ''}>+ Create new contact "${escHtml(r.partyName)}"</option>`]
+    .concat(r.nearDupCandidates.map(c =>
+      `<option value="${c.key}"${chosen === c.key ? ' selected' : ''}>Use existing: ${escHtml(c.name)}${c.tin ? ' (TIN ' + escHtml(c.tin) + ')' : ''}</option>`));
+  return `<div style="color:#92400e;">⚠️ Possible duplicate —
+    <select class="bi-party-pick" data-row="${i}">${opts.join('')}</select></div>`;
+}
+
+function onPartyPickChange(e) {
+  const i = parseInt(e.target.dataset.row, 10);
+  _biRows[i].userPartyChoice = e.target.value;
+  const row = document.getElementById(`bi-row-${i}`);
+  if (row) { row.classList.remove('row-warn'); row.classList.add('row-ok'); }
 }
 
 function setRowStatus(idx, html) {
@@ -773,6 +881,15 @@ function setRowStatus(idx, html) {
 }
 
 // ── POST DIRECTLY TO MANAGER VIA API ───────────────────────────
+// Picks the party key to post against: an exact match found during
+// validation, the bookkeeper's explicit pick from the duplicate-resolution
+// dropdown, or (only if neither applies) creates a brand-new contact.
+async function resolvePartyForPosting(row, cache) {
+  if (row.resolvedPartyKey) return row.resolvedPartyKey;
+  if (row.userPartyChoice && row.userPartyChoice !== 'new') return row.userPartyChoice;
+  return ensureParty(row.partyName, cache);
+}
+
 async function ensureParty(name, cache) {
   const lname = name.trim().toLowerCase();
   const existing = cache.partyKeyByName.get(lname);
@@ -841,7 +958,7 @@ async function postPayrollRow(row, cache) {
 }
 
 async function postInvoiceRow(row, cache) {
-  const partyKey = await ensureParty(row.partyName, cache);
+  const partyKey = await resolvePartyForPosting(row, cache);
 
   const lines = row.lines.map(l => {
     const line = {

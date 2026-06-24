@@ -99,7 +99,8 @@ async function initSLReport(type) {
 // parties relevant to that period's report.
 function filterPartyTabToPeriod(container) {
   if (!_slRows.length) return;
-  const keys = new Set(_slRows.map(r => r.partyKey).filter(Boolean));
+  const keys = new Set();
+  _slRows.forEach(r => (r.partyKeys || [r.partyKey]).forEach(k => k && keys.add(k)));
   if (!keys.size) return;
   let shown = 0, total = 0;
   container.querySelectorAll('tbody tr[data-key]').forEach(tr => {
@@ -144,7 +145,20 @@ async function generateSL(type, biz, setup, outputEl) {
     });
 
     document.getElementById('sl-excel').onclick = () => exportExcel(rows, type, periodLabel, setup, end);
-    document.getElementById('sl-dat').onclick   = () => exportDAT(rows, type, setup, end);
+    document.getElementById('sl-dat').onclick   = () => {
+      if (ptype !== 'quarterly') { exportDAT(rows, type, setup, end); return; }
+      // BIR RELIEF/eSubmission DAT files are filed per month, so a quarterly
+      // view must produce one DAT file per month in the quarter rather than
+      // a single file covering all three months.
+      const byMonth = new Map();
+      rows.forEach(r => {
+        if (!byMonth.has(r.monthKey)) byMonth.set(r.monthKey, []);
+        byMonth.get(r.monthKey).push(r);
+      });
+      [...byMonth.keys()].sort().forEach(mk => {
+        exportDAT(byMonth.get(mk), type, setup, monthKeyToEndDate(mk));
+      });
+    };
 
   } catch (err) {
     outputEl.innerHTML = `<div class="alert alert-error">❌ ${escHtml(err.message)}</div>`;
@@ -161,6 +175,18 @@ function getLineTaxCodeKey(line) {
   return (tc && typeof tc === 'object') ? (tc.key || tc.Key || '') : (tc || '');
 }
 
+// Month-bucket key for "per party per month" aggregation, e.g. "2026-06"
+function monthKey(d) {
+  const dt = (d instanceof Date) ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Last calendar day of a "YYYY-MM" month key, e.g. "2026-06" -> Date(2026-06-30)
+function monthKeyToEndDate(mk) {
+  const [y, m] = mk.split('-').map(Number);
+  return new Date(y, m, 0);
+}
+
 async function buildSLSRows(biz, start, end, vm, rateByKey) {
   const [invItems, receiptItems, custMap] = await Promise.all([
     fetchAllBatch('/api4/sales-invoice-batch', biz),
@@ -169,10 +195,11 @@ async function buildSLSRows(biz, start, end, vm, rateByKey) {
   ]);
   // Include cash-sale receipts that carry a VAT tax code directly on their lines
   const items = [...invItems, ...receiptItems.filter(({ item }) => getLines(item).some(l => getLineTaxCodeKey(l)))];
-  const rows    = [];
+  const groups = new Map(); // key: partyKey|monthKey
 
   for (const { key: invKey, item } of items) {
-    if (!inRange(item?.issueDate || item?.Date, start, end)) continue;
+    const date = item?.issueDate || item?.Date;
+    if (!inRange(date, start, end)) continue;
     const ck   = item?.customer || item?.Customer || '';
     const cd   = custMap[ck] || {};
     const name = cd.companyName || [cd.lastName, cd.firstName, cd.middleName].filter(Boolean).join(', ') || item?.CustomerName || ck;
@@ -187,17 +214,36 @@ async function buildSLSRows(biz, start, end, vm, rateByKey) {
       else if (tc === vm.sales_exempt)  { exempt    += net; }
     }
     if (taxable + zeroRated + exempt === 0) continue;
-    rows.push({
-      date: item.issueDate || item.Date, reference: item.reference || item.Reference || item.invoiceNumber || item.InvoiceNumber || '',
-      partyKey: ck,
-      name, tin: cd.tin || '', address: [cd.address1, cd.address2].filter(Boolean).join(', '),
-      companyName: cd.companyName || '', lastName: cd.lastName || '', firstName: cd.firstName || '', middleName: cd.middleName || '',
-      address1: cd.address1 || '', address2: cd.address2 || '',
-      taxable, zeroRated, exempt, outputVAT,
-      total: taxable + zeroRated + exempt,
-    });
+
+    const mk = monthKey(date);
+    // Two Manager contacts sharing the same TIN are the same taxpayer for BIR
+    // reporting purposes — combine them under one SLS row. Falls back to the
+    // Manager party key when TIN is blank, so untagged contacts still group
+    // correctly (and don't all collapse into a single blank-TIN bucket).
+    const normTin = (cd.tin || '').replace(/\D/g, '');
+    const gk = `${normTin || 'k:' + ck}|${mk}`;
+    let g = groups.get(gk);
+    if (!g) {
+      g = {
+        date: monthKeyToEndDate(mk).toISOString().slice(0,10), monthKey: mk, reference: '', txnCount: 0,
+        partyKey: ck,
+        name, tin: cd.tin || '', address: [cd.address1, cd.address2].filter(Boolean).join(', '),
+        companyName: cd.companyName || '', lastName: cd.lastName || '', firstName: cd.firstName || '', middleName: cd.middleName || '',
+        address1: cd.address1 || '', address2: cd.address2 || '',
+        partyKeys: new Set(),
+        taxable: 0, zeroRated: 0, exempt: 0, outputVAT: 0, total: 0,
+      };
+      groups.set(gk, g);
+    }
+    g.partyKeys.add(ck);
+    g.taxable   += taxable;
+    g.zeroRated += zeroRated;
+    g.exempt    += exempt;
+    g.outputVAT += outputVAT;
+    g.total     += taxable + zeroRated + exempt;
+    g.txnCount++;
   }
-  return rows.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }
 
 async function buildSLPRows(biz, start, end, vm, rateByKey) {
@@ -208,10 +254,11 @@ async function buildSLPRows(biz, start, end, vm, rateByKey) {
   ]);
   // Include cash-purchase/expense payments that carry a VAT tax code directly on their lines
   const items = [...invItems, ...paymentItems.filter(({ item }) => getLines(item).some(l => getLineTaxCodeKey(l)))];
-  const rows    = [];
+  const groups = new Map(); // key: partyKey|monthKey
 
   for (const { key: invKey, item } of items) {
-    if (!inRange(item?.issueDate || item?.Date, start, end)) continue;
+    const date = item?.issueDate || item?.Date;
+    if (!inRange(date, start, end)) continue;
     const sk   = item?.supplier || item?.Supplier || '';
     const sd   = suppMap[sk] || {};
     const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sk;
@@ -228,17 +275,35 @@ async function buildSLPRows(biz, start, end, vm, rateByKey) {
       else if (tc === vm.purch_exempt)  { exempt     += net; }
     }
     if (capGoods + otherGoods + services + zeroRated + exempt === 0) continue;
-    rows.push({
-      date: item.issueDate || item.Date, reference: item.reference || item.Reference || item.invoiceNumber || item.InvoiceNumber || '',
-      partyKey: sk,
-      name, tin: sd.tin || '', address: [sd.address1, sd.address2].filter(Boolean).join(', '),
-      companyName: sd.companyName || '', lastName: sd.lastName || '', firstName: sd.firstName || '', middleName: sd.middleName || '',
-      address1: sd.address1 || '', address2: sd.address2 || '',
-      capGoods, otherGoods, services, zeroRated, exempt, inputVAT,
-      total: capGoods + otherGoods + services + zeroRated + exempt,
-    });
+
+    const mk = monthKey(date);
+    // Combine suppliers sharing the same TIN into one SLP row (see SLS above).
+    const normTin = (sd.tin || '').replace(/\D/g, '');
+    const gk = `${normTin || 'k:' + sk}|${mk}`;
+    let g = groups.get(gk);
+    if (!g) {
+      g = {
+        date: monthKeyToEndDate(mk).toISOString().slice(0,10), monthKey: mk, reference: '', txnCount: 0,
+        partyKey: sk,
+        name, tin: sd.tin || '', address: [sd.address1, sd.address2].filter(Boolean).join(', '),
+        companyName: sd.companyName || '', lastName: sd.lastName || '', firstName: sd.firstName || '', middleName: sd.middleName || '',
+        address1: sd.address1 || '', address2: sd.address2 || '',
+        partyKeys: new Set(),
+        capGoods: 0, otherGoods: 0, services: 0, zeroRated: 0, exempt: 0, inputVAT: 0, total: 0,
+      };
+      groups.set(gk, g);
+    }
+    g.partyKeys.add(sk);
+    g.capGoods   += capGoods;
+    g.otherGoods += otherGoods;
+    g.services   += services;
+    g.zeroRated  += zeroRated;
+    g.exempt     += exempt;
+    g.inputVAT   += inputVAT;
+    g.total      += capGoods + otherGoods + services + zeroRated + exempt;
+    g.txnCount++;
   }
-  return rows.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }
 
 // ── RENDER TABLE ──────────────────────────────────────────────
@@ -255,20 +320,22 @@ function renderSLTable(el, rows, type, periodLabel, setup) {
     return { ...a, cap: a.cap+r.capGoods, other: a.other+r.otherGoods, svc: a.svc+r.services, zr: a.zr+r.zeroRated, ex: a.ex+r.exempt, vat: a.vat+r.inputVAT };
   }, { taxable:0, zeroRated:0, exempt:0, vat:0, cap:0, other:0, svc:0, zr:0, ex:0 });
 
-  const slsHead = `<th>Date</th><th>Invoice No.</th><th>Buyer Name</th><th>TIN</th>
+  const slsHead = `<th>Month</th><th class="num">Txns</th><th>Buyer Name</th><th>TIN</th>
     <th class="num">Taxable</th><th class="num">Zero-Rated</th><th class="num">Exempt</th><th class="num">Output VAT</th>`;
-  const slpHead = `<th>Date</th><th>Invoice No.</th><th>Seller Name</th><th>TIN</th>
+  const slpHead = `<th>Month</th><th class="num">Txns</th><th>Seller Name</th><th>TIN</th>
     <th class="num">Capital Goods</th><th class="num">Other Goods</th><th class="num">Services</th>
     <th class="num">Zero-Rated</th><th class="num">Exempt</th><th class="num">Input VAT</th>`;
 
   const slsRow = r => `<tr>
-    <td>${fmtDate(r.date)}</td><td>${escHtml(r.reference)}</td><td>${escHtml(r.name)}</td>
+    <td>${monthName(parseInt(r.monthKey.split('-')[1],10)-1)} ${r.monthKey.split('-')[0]}</td>
+    <td class="num">${r.txnCount}</td><td>${escHtml(r.name)}</td>
     <td style="font-family:monospace;">${escHtml(r.tin)}</td>
     <td class="num">${fmt(r.taxable)}</td><td class="num">${fmt(r.zeroRated)}</td>
     <td class="num">${fmt(r.exempt)}</td><td class="num">${fmt(r.outputVAT)}</td></tr>`;
 
   const slpRow = r => `<tr>
-    <td>${fmtDate(r.date)}</td><td>${escHtml(r.reference)}</td><td>${escHtml(r.name)}</td>
+    <td>${monthName(parseInt(r.monthKey.split('-')[1],10)-1)} ${r.monthKey.split('-')[0]}</td>
+    <td class="num">${r.txnCount}</td><td>${escHtml(r.name)}</td>
     <td style="font-family:monospace;">${escHtml(r.tin)}</td>
     <td class="num">${fmt(r.capGoods)}</td><td class="num">${fmt(r.otherGoods)}</td>
     <td class="num">${fmt(r.services)}</td><td class="num">${fmt(r.zeroRated)}</td>
@@ -327,7 +394,7 @@ function exportExcel(rows, type, periodLabel, setup, periodEnd) {
   const ownerName = ownerIsInd
     ? [setup.lastName, [setup.firstName, setup.middleName].filter(Boolean).join(' ')].filter(Boolean).join(', ')
     : (setup.companyName || setup.taxpayerName || '');
-  const monthDate = periodEnd ? new Date(periodEnd) : null;
+  const monthDate = periodEnd ? new Date(periodEnd) : null; // fallback only; rows carry their own monthKey
 
   const data = [
     [isSLS ? 'SALES TRANSACTION' : 'PURCHASE TRANSACTION'],
@@ -351,7 +418,7 @@ function exportExcel(rows, type, periodLabel, setup, periodEnd) {
       const gross = r.exempt + r.zeroRated + r.taxable;
       const grossTaxable = r.taxable + r.outputVAT;
       data.push([
-        monthDate, tinDashed(r.tin), regName.toUpperCase(), custName.toUpperCase(),
+        r.monthKey ? monthKeyToEndDate(r.monthKey) : monthDate, tinDashed(r.tin), regName.toUpperCase(), custName.toUpperCase(),
         [r.address1, r.address2].filter(Boolean).join(' ').toUpperCase(),
         gross, r.exempt, r.zeroRated, r.taxable, r.outputVAT, grossTaxable,
       ]);
@@ -368,7 +435,7 @@ function exportExcel(rows, type, periodLabel, setup, periodEnd) {
       const gross = r.exempt + r.zeroRated + taxable;
       const grossTaxable = taxable + r.inputVAT;
       data.push([
-        monthDate, tinDashed(r.tin), regName.toUpperCase(), suppName.toUpperCase(),
+        r.monthKey ? monthKeyToEndDate(r.monthKey) : monthDate, tinDashed(r.tin), regName.toUpperCase(), suppName.toUpperCase(),
         [r.address1, r.address2].filter(Boolean).join(' ').toUpperCase(),
         gross, r.exempt, r.zeroRated, taxable, r.services, r.capGoods, r.otherGoods, r.inputVAT, grossTaxable,
       ]);
