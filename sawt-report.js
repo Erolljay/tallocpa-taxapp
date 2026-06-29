@@ -427,13 +427,15 @@ function exportSAWTDat(rows, setup, periodEnd, formType) {
     const m = r.months || [{base:0,ewt:0},{base:0,ewt:0},{base:0,ewt:0}];
     totBase += r.base; totEwt += r.ewt;
     const corpName = stripSpecial(c.companyName || (!c.lastName && !c.firstName ? c.name : '') || '').toUpperCase();
-    const indName  = stripSpecial([c.lastName, c.firstName, c.middleName].filter(Boolean).join(' ')).toUpperCase();
+    const ln = stripSpecial(c.lastName || '').toUpperCase();
+    const fn = stripSpecial(c.firstName || '').toUpperCase();
+    const mn = stripSpecial(c.middleName || '').toUpperCase();
     lines.push([
       'D1', formType,
       i + 1,
       tin9(c.tin),
       (c.branchCode || '0001'),
-      qd(corpName), qd(indName),
+      qd(corpName), qd(ln), qd(fn), qd(mn),
       monthsInQ[0], r.atc, r.rate.toFixed(2), csvNum(m[0].base), csvNum(m[0].ewt),
       monthsInQ[1], csvNum(m[1].base), csvNum(m[1].ewt),
       monthsInQ[2], csvNum(m[2].base), csvNum(m[2].ewt),
@@ -479,13 +481,15 @@ function exportSAWTDatSimple(rows, setup, periodStart, periodEnd, formType, ptyp
     const c = _sawtCustMap[r.custKey] || {};
     totBase += r.base; totEwt += r.ewt;
     const corpName = stripSpecial(c.companyName || (!c.lastName && !c.firstName ? c.name : '') || '').toUpperCase();
-    const indName  = stripSpecial([c.lastName, c.firstName, c.middleName].filter(Boolean).join(' ')).toUpperCase();
+    const ln = stripSpecial(c.lastName || '').toUpperCase();
+    const fn = stripSpecial(c.firstName || '').toUpperCase();
+    const mn = stripSpecial(c.middleName || '').toUpperCase();
     lines.push([
       'D1', formType,
       i + 1,
       tin9(c.tin),
       (c.branchCode || '0001'),
-      qd(corpName), qd(indName),
+      qd(corpName), qd(ln), qd(fn), qd(mn),
       ptype === 'annual' ? endStr : startStr, r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
     ].join(','));
   });

@@ -434,13 +434,15 @@ function exportQAPDat(rows, setup, periodEnd, formType) {
     const m = r.months || [{base:0,ewt:0},{base:0,ewt:0},{base:0,ewt:0}];
     totBase += r.base; totEwt += r.ewt;
     const corpName = stripSpecial(s.companyName || (!s.lastName && !s.firstName ? s.name : '') || '').toUpperCase();
-    const indName  = stripSpecial([s.lastName, s.firstName, s.middleName].filter(Boolean).join(' ')).toUpperCase();
+    const ln = stripSpecial(s.lastName || '').toUpperCase();
+    const fn = stripSpecial(s.firstName || '').toUpperCase();
+    const mn = stripSpecial(s.middleName || '').toUpperCase();
     lines.push([
       'D1', formType,
       i + 1,
       tin9(s.tin),
       (s.branchCode || '0001'),
-      qd(corpName), qd(indName),
+      qd(corpName), qd(ln), qd(fn), qd(mn),
       monthsInQ[0], r.atc, r.rate.toFixed(2), csvNum(m[0].base), csvNum(m[0].ewt),
       monthsInQ[1], csvNum(m[1].base), csvNum(m[1].ewt),
       monthsInQ[2], csvNum(m[2].base), csvNum(m[2].ewt),
@@ -488,13 +490,15 @@ function exportQAPDatSimple(rows, setup, periodStart, periodEnd, formType, ptype
     const s = _qapSuppMap[r.suppKey] || {};
     totBase += r.base; totEwt += r.ewt;
     const corpName = stripSpecial(s.companyName || (!s.lastName && !s.firstName ? s.name : '') || '').toUpperCase();
-    const indName  = stripSpecial([s.lastName, s.firstName, s.middleName].filter(Boolean).join(' ')).toUpperCase();
+    const ln = stripSpecial(s.lastName || '').toUpperCase();
+    const fn = stripSpecial(s.firstName || '').toUpperCase();
+    const mn = stripSpecial(s.middleName || '').toUpperCase();
     lines.push([
       'D1', formType,
       i + 1,
       tin9(s.tin),
       (s.branchCode || '0001'),
-      qd(corpName), qd(indName),
+      qd(corpName), qd(ln), qd(fn), qd(mn),
       ptype === 'annual' ? endStr : startStr, r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
     ].join(','));
   });
