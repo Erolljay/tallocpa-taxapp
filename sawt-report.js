@@ -448,7 +448,7 @@ function exportSAWTDat(rows, setup, periodEnd, formType) {
   const content = lines.join('\r\n') + '\r\n';
   const blob = new Blob([content], { type: 'text/plain' });
   const periodTag = `${String(qEnd.getMonth()+1).padStart(2,'0')}${qEnd.getFullYear()}`;
-  const fname = `${ourTin}0000SAWT${periodTag}${formType}.DAT`;
+  const fname = `${ourTin}0000${periodTag}${formType}.DAT`;
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fname });
   a.click(); URL.revokeObjectURL(a.href);
 }
@@ -500,7 +500,7 @@ function exportSAWTDatSimple(rows, setup, periodStart, periodEnd, formType, ptyp
   const periodTag = ptype === 'annual'
     ? `${periodEnd.getFullYear()}`
     : `${String(periodStart.getMonth()+1).padStart(2,'0')}${periodStart.getFullYear()}`;
-  const fname = `${ourTin}0000SAWT${periodTag}${formType}.DAT`;
+  const fname = `${ourTin}0000${periodTag}${formType}.DAT`;
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fname });
   a.click(); URL.revokeObjectURL(a.href);
 }
