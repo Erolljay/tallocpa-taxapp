@@ -467,6 +467,12 @@ function csvNum(n) {
   return (Number(n) || 0).toFixed(2);
 }
 
+// BIR detail (D) rows leave blank fields fully empty (no quotes); only header (H)
+// rows quote blanks as "". Use this for any D-row field that may legitimately be blank.
+function qd(v) {
+  return v ? `"${v}"` : '';
+}
+
 function exportDAT(rows, type, setup, periodEnd) {
   const isSLS = type === 'sls';
   const isInd = setup.classification === 'Individual';
@@ -475,10 +481,11 @@ function exportDAT(rows, type, setup, periodEnd) {
   const ln = isInd ? (setup.lastName || '').toUpperCase()  : '';
   const fn = isInd ? (setup.firstName || '').toUpperCase() : '';
   const mn = isInd ? (setup.middleName || '').toUpperCase(): '';
-  const regName = (setup.companyName || setup.taxpayerName || '').toUpperCase();
-  const addr1 = (setup.address || '').toUpperCase();
-  const addr2 = (setup.zipCode || '').toUpperCase();
+  const regName = (setup.companyName || setup.taxpayerName || '').replace(/,/g, '').toUpperCase();
+  const addr1 = (setup.address1 || setup.address || '').replace(/,/g, '').toUpperCase();
+  const addr2 = (setup.address2 || setup.zipCode || '').replace(/,/g, '').toUpperCase();
   const rdo = setup.rdoCode || '';
+  const fiscalMonthEnd = setup.fiscalMonthEnd || '12';
   const dateStr = datDate(periodEnd);
 
   const lines = [];
@@ -492,19 +499,19 @@ function exportDAT(rows, type, setup, periodEnd) {
     lines.push([
       'H', 'S', `"${ourTin}"`, '""', `"${ln}"`, `"${fn}"`, `"${mn}"`, `"${regName}"`, `"${addr1}"`, `"${addr2}"`,
       csvNum(tot.exempt), csvNum(tot.zeroRated), csvNum(tot.taxable), csvNum(tot.vat),
-      rdo, dateStr, '12',
+      rdo, dateStr, fiscalMonthEnd,
     ].join(','));
 
     for (const r of rows) {
       const buyerTin = tin9(r.tin);
-      const buyerReg = (r.companyName || '').toUpperCase();
-      const bln = (r.lastName || '').toUpperCase();
-      const bfn = (r.firstName || '').toUpperCase();
-      const bmn = (r.middleName || '').toUpperCase();
-      const a1  = (r.address1 || '').toUpperCase();
-      const a2  = (r.address2 || '').toUpperCase();
+      const buyerReg = (r.companyName || '').replace(/,/g, '').toUpperCase();
+      const bln = (r.lastName || '').replace(/,/g, '').toUpperCase();
+      const bfn = (r.firstName || '').replace(/,/g, '').toUpperCase();
+      const bmn = (r.middleName || '').replace(/,/g, '').toUpperCase();
+      const a1  = (r.address1 || '').replace(/,/g, '').toUpperCase();
+      const a2  = (r.address2 || '').replace(/,/g, '').toUpperCase();
       lines.push([
-        'D', 'S', `"${buyerTin}"`, `"${buyerReg}"`, `"${bln}"`, `"${bfn}"`, `"${bmn}"`, `"${a1}"`, `"${a2}"`,
+        'D', 'S', `"${buyerTin}"`, qd(buyerReg), qd(bln), qd(bfn), qd(bmn), qd(a1), qd(a2),
         csvNum(r.exempt), csvNum(r.zeroRated), csvNum(r.taxable), csvNum(r.outputVAT),
         `"${ourTin}"`, datDate(r.date),
       ].join(','));
@@ -520,19 +527,19 @@ function exportDAT(rows, type, setup, periodEnd) {
       'H', 'P', `"${ourTin}"`, '""', `"${ln}"`, `"${fn}"`, `"${mn}"`, `"${regName}"`, `"${addr1}"`, `"${addr2}"`,
       csvNum(tot.exempt), csvNum(tot.zeroRated), csvNum(tot.services), csvNum(tot.capGoods), csvNum(tot.otherGoods),
       csvNum(tot.vat), csvNum(tot.vat), csvNum(0),
-      rdo, dateStr, '12',
+      rdo, dateStr, fiscalMonthEnd,
     ].join(','));
 
     for (const r of rows) {
       const sellerTin = tin9(r.tin);
-      const sellerReg = (r.companyName || '').toUpperCase();
-      const sln = (r.lastName || '').toUpperCase();
-      const sfn = (r.firstName || '').toUpperCase();
-      const smn = (r.middleName || '').toUpperCase();
-      const a1  = (r.address1 || '').toUpperCase();
-      const a2  = (r.address2 || '').toUpperCase();
+      const sellerReg = (r.companyName || '').replace(/,/g, '').toUpperCase();
+      const sln = (r.lastName || '').replace(/,/g, '').toUpperCase();
+      const sfn = (r.firstName || '').replace(/,/g, '').toUpperCase();
+      const smn = (r.middleName || '').replace(/,/g, '').toUpperCase();
+      const a1  = (r.address1 || '').replace(/,/g, '').toUpperCase();
+      const a2  = (r.address2 || '').replace(/,/g, '').toUpperCase();
       lines.push([
-        'D', 'P', `"${sellerTin}"`, `"${sellerReg}"`, `"${sln}"`, `"${sfn}"`, `"${smn}"`, `"${a1}"`, `"${a2}"`,
+        'D', 'P', `"${sellerTin}"`, qd(sellerReg), qd(sln), qd(sfn), qd(smn), qd(a1), qd(a2),
         csvNum(r.exempt), csvNum(r.zeroRated), csvNum(r.services), csvNum(r.capGoods), csvNum(r.otherGoods), csvNum(r.inputVAT),
         `"${ourTin}"`, datDate(r.date),
       ].join(','));

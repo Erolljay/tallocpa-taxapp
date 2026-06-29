@@ -18,8 +18,10 @@
     { id: 'b1r00001-0000-4000-a000-000000000005', label: 'Line of Business',         type: 'text',   placeholder: 'e.g. Retail Trade' },
     { id: 'b1r00001-0000-4000-a000-000000000015', label: 'Telephone Number',         type: 'text',   placeholder: 'e.g. 033-XXX-XXXX' },
     { id: 'b1r00001-0000-4000-a000-000000000016', label: 'Email Address',            type: 'text',   placeholder: 'e.g. info@company.com' },
+    { id: 'b1r00001-0000-4000-a000-000000000024', label: 'Fiscal Month End',         type: 'select', options: ['', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'], labels: ['-- select --', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] },
     // [7] Registered Name (non-individual)
     { id: 'b1r00001-0000-4000-a000-000000000009', label: 'Company / Registered Name', type: 'text',  placeholder: 'ABC Corporation' },
+    { id: 'b1r00001-0000-4000-a000-000000000025', label: 'Trade Name',               type: 'text',   placeholder: 'e.g. ABC Store (if different from registered name)' },
     // [8-10] Registered Name (individual)
     { id: 'b1r00001-0000-4000-a000-000000000010', label: 'Last Name',                type: 'text',   placeholder: 'Dela Cruz' },
     { id: 'b1r00001-0000-4000-a000-000000000011', label: 'First Name',               type: 'text',   placeholder: 'Juan' },
@@ -250,12 +252,14 @@
         renderField(BF('b1r00001-0000-4000-a000-000000000004'), val('b1r00001-0000-4000-a000-000000000004'), 'biz') +
         renderField(BF('b1r00001-0000-4000-a000-000000000005'), val('b1r00001-0000-4000-a000-000000000005'), 'biz') +
         renderField(BF('b1r00001-0000-4000-a000-000000000015'), val('b1r00001-0000-4000-a000-000000000015'), 'biz') +
-        renderField(BF('b1r00001-0000-4000-a000-000000000016'), val('b1r00001-0000-4000-a000-000000000016'), 'biz');
+        renderField(BF('b1r00001-0000-4000-a000-000000000016'), val('b1r00001-0000-4000-a000-000000000016'), 'biz') +
+        renderField(BF('b1r00001-0000-4000-a000-000000000024'), val('b1r00001-0000-4000-a000-000000000024'), 'biz');
 
       var right =
         '<p style="' + secStyle + '">Registered Name</p>' +
         '<div id="cf-grp-company" style="' + (isInd ? 'display:none' : '') + '">' +
           renderField(BF('b1r00001-0000-4000-a000-000000000009'), val('b1r00001-0000-4000-a000-000000000009'), 'biz') +
+          renderField(BF('b1r00001-0000-4000-a000-000000000025'), val('b1r00001-0000-4000-a000-000000000025'), 'biz') +
         '</div>' +
         '<div id="cf-grp-ind" style="' + (!isInd ? 'display:none' : '') + '">' +
           renderField(BF('b1r00001-0000-4000-a000-000000000010'), val('b1r00001-0000-4000-a000-000000000010'), 'biz') +

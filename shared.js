@@ -432,6 +432,8 @@ const BIZ_GUIDS = {
   authRep:       'b1r00001-0000-4000-a000-000000000014',
   authRepTitle:  'b1r00001-0000-4000-a000-000000000022',
   authRepSignature: 'b1r00001-0000-4000-a000-000000000023',
+  fiscalMonthEnd:'b1r00001-0000-4000-a000-000000000024',
+  tradeName:     'b1r00001-0000-4000-a000-000000000025',
 };
 
 const PARTY_GUIDS = {
@@ -461,6 +463,9 @@ async function loadSetup(biz) {
     const taxpayerName = isInd
       ? [ln, fn, mn].filter(Boolean).join(', ')
       : corp;
+    // BIR DAT mapping: Address1 = Substreet+Street+Barangay, Address2 = District/City+Zip (space-joined, no commas)
+    const address1 = [cf[BIZ_GUIDS.substreet], cf[BIZ_GUIDS.street], cf[BIZ_GUIDS.barangay]].filter(Boolean).join(' ');
+    const address2 = [cf[BIZ_GUIDS.municipality], cf[BIZ_GUIDS.cityProvince], cf[BIZ_GUIDS.zipCode]].filter(Boolean).join(' ');
     const addrParts = [
       cf[BIZ_GUIDS.substreet], cf[BIZ_GUIDS.street], cf[BIZ_GUIDS.barangay],
       cf[BIZ_GUIDS.municipality], cf[BIZ_GUIDS.cityProvince],
@@ -472,9 +477,12 @@ async function loadSetup(biz) {
       classification: cls,
       lineOfBusiness: cf[BIZ_GUIDS.lineOfBusiness]  || '',
       companyName:    corp,
+      tradeName:      cf[BIZ_GUIDS.tradeName]       || '',
+      fiscalMonthEnd: cf[BIZ_GUIDS.fiscalMonthEnd]   || '12',
       taxpayerName,
       lastName: ln, firstName: fn, middleName: mn,
       address:  addrParts.join(', '),
+      address1, address2,
       zipCode:  cf[BIZ_GUIDS.zipCode]       || '',
       authRep:  cf[BIZ_GUIDS.authRep]       || '',
       authRepTitle: cf[BIZ_GUIDS.authRepTitle] || '',

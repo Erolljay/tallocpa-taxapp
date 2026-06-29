@@ -957,8 +957,8 @@ async function loadPartyTab(type) {
                   value="${escHtml(d.firstName||'')}" ${!isInd?'disabled style="background:#f1f5f9;color:#94a3b8;"':''}></td>
                 <td class="ind-col"><input class="form-input pf-middleName" style="width:55px;" placeholder="MI"
                   value="${escHtml(d.middleName||'')}" ${!isInd?'disabled style="background:#f1f5f9;color:#94a3b8;"':''}></td>
-                <td><input class="form-input pf-address1" style="width:150px;" placeholder="Unit, Bldg, Street" value="${escHtml(d.address1||'')}"></td>
-                <td><input class="form-input pf-address2" style="width:130px;" placeholder="City, Province" value="${escHtml(d.address2||'')}"></td>
+                <td><input class="form-input pf-address1" style="width:150px;" placeholder="Substreet, Street, Barangay" value="${escHtml(d.address1||'')}"></td>
+                <td><input class="form-input pf-address2" style="width:130px;" placeholder="District, City, Zip Code" value="${escHtml(d.address2||'')}"></td>
                 <td><button class="btn btn-primary btn-sm" onclick="savePartyRow(this,'${type}')">Save</button></td>
               </tr>`;
             }).join('')}
