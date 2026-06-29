@@ -473,7 +473,7 @@ async function loadSetup(biz) {
     return {
       tin:            cf[BIZ_GUIDS.tin]            || '',
       rdoCode:        cf[BIZ_GUIDS.rdoCode]         || '',
-      branchCode:     cf[BIZ_GUIDS.branchCode]      || '',
+      branchCode:     (cf[BIZ_GUIDS.branchCode] || '').replace(/\D/g, '') || '',
       classification: cls,
       lineOfBusiness: cf[BIZ_GUIDS.lineOfBusiness]  || '',
       companyName:    corp,
@@ -514,7 +514,13 @@ async function loadPartyBIR(biz, partyType) {
         name:        rec.name || rec.Name || it.key,
         type:        cf[PARTY_GUIDS.type]        || 'Non-Individual',
         tin:         cf[PARTY_GUIDS.tin]         || '',
-        branchCode:  cf[PARTY_GUIDS.branchCode]  || '',
+        // BIR's COR shows branch codes as 3 digits (e.g. "000" for Head Office),
+        // but DAT files require 4 digits. Pad here so a correctly-entered 3-digit
+        // code (per the form's own placeholder) doesn't fail DAT validation.
+        branchCode:  (() => {
+          const digits = (cf[PARTY_GUIDS.branchCode] || '').replace(/\D/g, '');
+          return digits ? digits.padStart(4, '0').slice(-4) : '';
+        })(),
         companyName: cf[PARTY_GUIDS.companyName] || '',
         lastName:    cf[PARTY_GUIDS.lastName]    || '',
         firstName:   cf[PARTY_GUIDS.firstName]   || '',
@@ -558,6 +564,9 @@ function getPeriodDates(type, period, year) {
   if (type === 'monthly') {
     const m = parseInt(period, 10);
     return { start: new Date(year, m, 1), end: new Date(year, m + 1, 0) };
+  }
+  if (type === 'annual') {
+    return { start: new Date(year, 0, 1), end: new Date(year, 11, 31) };
   }
   const q = parseInt(period, 10);
   const sm = (q - 1) * 3;

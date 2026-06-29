@@ -13,7 +13,7 @@
     // [0] Identity
     { id: 'b1r00001-0000-4000-a000-000000000001', label: 'TIN',                      type: 'text',   placeholder: '000-000-000-000' },
     { id: 'b1r00001-0000-4000-a000-000000000002', label: 'RDO Code',                 type: 'text',   placeholder: 'e.g. 083' },
-    { id: 'b1r00001-0000-4000-a000-000000000013', label: 'Branch Code',              type: 'text',   placeholder: '000 (Head Office = 000)' },
+    { id: 'b1r00001-0000-4000-a000-000000000013', label: 'Branch Code',              type: 'text',   placeholder: '0000 (Head Office = 0000)' },
     { id: 'b1r00001-0000-4000-a000-000000000004', label: 'Taxpayer Classification',  type: 'select', options: ['', 'Non-Individual / Corporation', 'Individual'] },
     { id: 'b1r00001-0000-4000-a000-000000000005', label: 'Line of Business',         type: 'text',   placeholder: 'e.g. Retail Trade' },
     { id: 'b1r00001-0000-4000-a000-000000000015', label: 'Telephone Number',         type: 'text',   placeholder: 'e.g. 033-XXX-XXXX' },

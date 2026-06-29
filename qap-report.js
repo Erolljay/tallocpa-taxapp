@@ -417,11 +417,7 @@ function exportQAPDat(rows, setup, periodEnd, formType) {
   const periodStart = monthsInQ[0];
   const periodEndStr = monthsInQ[2];
 
-  const ownerIsInd = setup.classification === 'Individual';
-  const agentName = (setup.companyName || setup.taxpayerName || '').toUpperCase();
-  const ln = ownerIsInd ? (setup.lastName || '').toUpperCase()  : '';
-  const fn = ownerIsInd ? (setup.firstName || '').toUpperCase() : '';
-  const mn = ownerIsInd ? (setup.middleName || '').toUpperCase(): '';
+  const agentName = stripSpecial(setup.companyName || setup.taxpayerName || '').toUpperCase();
 
   const lines = [];
 
@@ -437,15 +433,14 @@ function exportQAPDat(rows, setup, periodEnd, formType) {
     const s = _qapSuppMap[r.suppKey] || {};
     const m = r.months || [{base:0,ewt:0},{base:0,ewt:0},{base:0,ewt:0}];
     totBase += r.base; totEwt += r.ewt;
+    const corpName = stripSpecial(s.companyName || (!s.lastName && !s.firstName ? s.name : '') || '').toUpperCase();
+    const indName  = stripSpecial([s.lastName, s.firstName, s.middleName].filter(Boolean).join(' ')).toUpperCase();
     lines.push([
       'D1', formType,
       i + 1,
       tin9(s.tin),
       (s.branchCode || '0001'),
-      `"${(s.companyName || s.name || '').toUpperCase()}"`,
-      ln || (s.lastName || '').toUpperCase(),
-      fn || (s.firstName || '').toUpperCase(),
-      mn || (s.middleName || '').toUpperCase(),
+      qd(corpName), qd(indName),
       monthsInQ[0], r.atc, r.rate.toFixed(2), csvNum(m[0].base), csvNum(m[0].ewt),
       monthsInQ[1], csvNum(m[1].base), csvNum(m[1].ewt),
       monthsInQ[2], csvNum(m[2].base), csvNum(m[2].ewt),
@@ -477,11 +472,7 @@ function exportQAPDatSimple(rows, setup, periodStart, periodEnd, formType, ptype
   const startStr = `${String(periodStart.getMonth()+1).padStart(2,'0')}/${periodStart.getFullYear()}`;
   const endStr   = `${String(periodEnd.getMonth()+1).padStart(2,'0')}/${periodEnd.getFullYear()}`;
 
-  const ownerIsInd = setup.classification === 'Individual';
-  const agentName = (setup.companyName || setup.taxpayerName || '').toUpperCase();
-  const ln = ownerIsInd ? (setup.lastName || '').toUpperCase()  : '';
-  const fn = ownerIsInd ? (setup.firstName || '').toUpperCase() : '';
-  const mn = ownerIsInd ? (setup.middleName || '').toUpperCase(): '';
+  const agentName = stripSpecial(setup.companyName || setup.taxpayerName || '').toUpperCase();
 
   const lines = [];
 
@@ -496,15 +487,14 @@ function exportQAPDatSimple(rows, setup, periodStart, periodEnd, formType, ptype
   rows.forEach((r, i) => {
     const s = _qapSuppMap[r.suppKey] || {};
     totBase += r.base; totEwt += r.ewt;
+    const corpName = stripSpecial(s.companyName || (!s.lastName && !s.firstName ? s.name : '') || '').toUpperCase();
+    const indName  = stripSpecial([s.lastName, s.firstName, s.middleName].filter(Boolean).join(' ')).toUpperCase();
     lines.push([
       'D1', formType,
       i + 1,
       tin9(s.tin),
       (s.branchCode || '0001'),
-      `"${(s.companyName || s.name || '').toUpperCase()}"`,
-      ln || (s.lastName || '').toUpperCase(),
-      fn || (s.firstName || '').toUpperCase(),
-      mn || (s.middleName || '').toUpperCase(),
+      qd(corpName), qd(indName),
       ptype === 'annual' ? endStr : startStr, r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
     ].join(','));
   });
@@ -532,6 +522,18 @@ function tin9(t) {
 
 function csvNum(n) {
   return (Number(n) || 0).toFixed(2);
+}
+
+// D1 detail rows leave blank fields fully empty (no quotes); only quote when present.
+function qd(v) {
+  return v ? `"${v}"` : '';
+}
+
+// BIR's Validation Module rejects names/addresses containing special characters
+// (commas break its naive comma-split parsing; other symbols like ()*&^%$#@! fail
+// its field validation outright). Keep letters, digits, spaces, period, hyphen, slash.
+function stripSpecial(v) {
+  return (v || '').replace(/[^A-Za-z0-9\s.\-\/]/g, '');
 }
 
 function tinDashed(t) {
