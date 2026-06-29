@@ -422,18 +422,20 @@ function exportSLExcel(rows, type, periodLabel, setup) {
 function exportSLDat(rows, type, periodLabel, setup) {
   const isSLS = type === 'sls';
   const tin   = (setup.tin || '000-000-000-000').replace(/-/g, '');
-  const name  = (setup.taxpayerName || App.currentBusiness).toUpperCase().padEnd(50).substring(0, 50);
+  const name  = (setup.taxpayerName || App.currentBusiness).replace(/,/g, '').toUpperCase().padEnd(50).substring(0, 50);
 
   // BIR DAT format: pipe-delimited
   // SLS fields: TaxpayerTIN|TaxpayerName|BuyerTIN|BuyerName|InvoiceDate|InvoiceNo|TaxableAmt|ZeroRated|Exempt|OutputVAT
   // SLP fields: TaxpayerTIN|TaxpayerName|SellerTIN|SellerName|InvoiceDate|InvoiceNo|CapGoods|OtherGoods|Services|ZeroRated|Exempt|InputVAT
 
   const lines = [];
+  // BIR's SLS/SLP validation app rejects commas in header/taxpayer-info fields
+  const noComma = s => (s || '').replace(/,/g, '');
 
   if (isSLS) {
     for (const r of rows) {
       const buyTIN  = (r.buyerTIN || '').replace(/-/g, '').padEnd(12).substring(0, 12);
-      const buyName = (r.buyerName || '').toUpperCase().padEnd(50).substring(0, 50);
+      const buyName = noComma(r.buyerName).toUpperCase().padEnd(50).substring(0, 50);
       const invDate = r.date ? r.date.substring(0, 10).replace(/-/g, '/') : '';
       const invNo   = (r.reference || '').padEnd(30).substring(0, 30);
       lines.push([
@@ -446,7 +448,7 @@ function exportSLDat(rows, type, periodLabel, setup) {
   } else {
     for (const r of rows) {
       const selTIN  = (r.sellerTIN || '').replace(/-/g, '').padEnd(12).substring(0, 12);
-      const selName = (r.sellerName || '').toUpperCase().padEnd(50).substring(0, 50);
+      const selName = noComma(r.sellerName).toUpperCase().padEnd(50).substring(0, 50);
       const invDate = r.date ? r.date.substring(0, 10).replace(/-/g, '/') : '';
       const invNo   = (r.reference || '').padEnd(30).substring(0, 30);
       lines.push([
