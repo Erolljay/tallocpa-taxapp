@@ -518,6 +518,13 @@ function qd(v) {
   return v ? `"${v}"` : '';
 }
 
+// BIR's Validation Module rejects names/addresses containing special characters
+// (commas break its naive comma-split parsing; other symbols like ()*&^%$#@! fail
+// its field validation outright). Keep letters, digits, spaces, period, hyphen, slash.
+function stripSpecial(v) {
+  return (v || '').replace(/[^A-Za-z0-9\s.\-\/]/g, '');
+}
+
 function exportDAT(rows, type, setup, periodEnd) {
   const isSLS = type === 'sls';
   const isInd = setup.classification === 'Individual';
@@ -526,9 +533,9 @@ function exportDAT(rows, type, setup, periodEnd) {
   const ln = isInd ? (setup.lastName || '').toUpperCase()  : '';
   const fn = isInd ? (setup.firstName || '').toUpperCase() : '';
   const mn = isInd ? (setup.middleName || '').toUpperCase(): '';
-  const regName = (setup.companyName || setup.taxpayerName || '').replace(/,/g, '').toUpperCase();
-  const addr1 = (setup.address1 || setup.address || '').replace(/,/g, '').toUpperCase();
-  const addr2 = (setup.address2 || setup.zipCode || '').replace(/,/g, '').toUpperCase();
+  const regName = stripSpecial(setup.companyName || setup.taxpayerName || '').toUpperCase();
+  const addr1 = stripSpecial(setup.address1 || setup.address || '').toUpperCase();
+  const addr2 = stripSpecial(setup.address2 || setup.zipCode || '').toUpperCase();
   const rdo = setup.rdoCode || '';
   const fiscalMonthEnd = setup.fiscalMonthEnd || '12';
   const dateStr = datDate(periodEnd);
@@ -549,12 +556,12 @@ function exportDAT(rows, type, setup, periodEnd) {
 
     for (const r of rows) {
       const buyerTin = tin9(r.tin);
-      const buyerReg = (r.companyName || '').replace(/,/g, '').toUpperCase();
-      const bln = (r.lastName || '').replace(/,/g, '').toUpperCase();
-      const bfn = (r.firstName || '').replace(/,/g, '').toUpperCase();
-      const bmn = (r.middleName || '').replace(/,/g, '').toUpperCase();
-      const a1  = (r.address1 || '').replace(/,/g, '').toUpperCase();
-      const a2  = (r.address2 || '').replace(/,/g, '').toUpperCase();
+      const buyerReg = stripSpecial(r.companyName || '').toUpperCase();
+      const bln = stripSpecial(r.lastName || '').toUpperCase();
+      const bfn = stripSpecial(r.firstName || '').toUpperCase();
+      const bmn = stripSpecial(r.middleName || '').toUpperCase();
+      const a1  = stripSpecial(r.address1 || '').toUpperCase();
+      const a2  = stripSpecial(r.address2 || '').toUpperCase();
       lines.push([
         'D', 'S', `"${buyerTin}"`, qd(buyerReg), qd(bln), qd(bfn), qd(bmn), qd(a1), qd(a2),
         csvNum(r.exempt), csvNum(r.zeroRated), csvNum(r.taxable), csvNum(r.outputVAT),
@@ -577,12 +584,12 @@ function exportDAT(rows, type, setup, periodEnd) {
 
     for (const r of rows) {
       const sellerTin = tin9(r.tin);
-      const sellerReg = (r.companyName || '').replace(/,/g, '').toUpperCase();
-      const sln = (r.lastName || '').replace(/,/g, '').toUpperCase();
-      const sfn = (r.firstName || '').replace(/,/g, '').toUpperCase();
-      const smn = (r.middleName || '').replace(/,/g, '').toUpperCase();
-      const a1  = (r.address1 || '').replace(/,/g, '').toUpperCase();
-      const a2  = (r.address2 || '').replace(/,/g, '').toUpperCase();
+      const sellerReg = stripSpecial(r.companyName || '').toUpperCase();
+      const sln = stripSpecial(r.lastName || '').toUpperCase();
+      const sfn = stripSpecial(r.firstName || '').toUpperCase();
+      const smn = stripSpecial(r.middleName || '').toUpperCase();
+      const a1  = stripSpecial(r.address1 || '').toUpperCase();
+      const a2  = stripSpecial(r.address2 || '').toUpperCase();
       lines.push([
         'D', 'P', `"${sellerTin}"`, qd(sellerReg), qd(sln), qd(sfn), qd(smn), qd(a1), qd(a2),
         csvNum(r.exempt), csvNum(r.zeroRated), csvNum(r.services), csvNum(r.capGoods), csvNum(r.otherGoods), csvNum(r.inputVAT),
