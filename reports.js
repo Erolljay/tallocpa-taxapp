@@ -92,7 +92,7 @@ const REPORTS = [
     group: 'Income Tax',
     req: 'expanded',
     phase: 2,
-    available: false,
+    available: true,
   },
   {
     id: 'a7b8c9d0-e1f2-4345-a678-b9c0d1e2f3a4',
