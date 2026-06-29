@@ -224,7 +224,7 @@ async function generateSAWT(biz, setup, outputEl) {
     datEnd   = new Date(year, 11, 31, 23, 59, 59, 999);
     periodLabel = `${year}`;
   } else {
-    datStart = qStart; datEnd = qEnd;
+    ({ start: datStart, end: datEnd } = getPeriodDates('quarterly', q, year));
     periodLabel = `${quarterLabel(q)} ${year}`;
   }
 
