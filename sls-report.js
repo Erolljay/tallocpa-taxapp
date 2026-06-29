@@ -41,6 +41,7 @@ async function initSLReport(type) {
       <select id="sl-ptype">
         <option value="quarterly">Quarterly</option>
         <option value="monthly">Monthly</option>
+        <option value="annual">Annual</option>
       </select>
       <span id="sl-qwrap">
         <label>Quarter</label>
@@ -71,7 +72,8 @@ async function initSLReport(type) {
 
   document.getElementById('sl-ptype').addEventListener('change', function () {
     const isM = this.value === 'monthly';
-    document.getElementById('sl-qwrap').style.display = isM ? 'none' : '';
+    const isA = this.value === 'annual';
+    document.getElementById('sl-qwrap').style.display = isM || isA ? 'none' : '';
     document.getElementById('sl-mwrap').style.display = isM ? '' : 'none';
   });
 
@@ -121,6 +123,7 @@ async function generateSL(type, biz, setup, outputEl) {
   const year    = parseInt(document.getElementById('sl-year').value, 10);
   const period  = ptype === 'monthly'
     ? parseInt(document.getElementById('sl-month').value, 10)
+    : ptype === 'annual' ? null
     : parseInt(document.getElementById('sl-quarter').value, 10);
 
   const { start, end } = getPeriodDates(ptype, period, year);
@@ -133,8 +136,8 @@ async function generateSL(type, biz, setup, outputEl) {
 
     _slRows = rows;
 
-    const periodLabel = ptype === 'monthly'
-      ? `${monthName(period)} ${year}`
+    const periodLabel = ptype === 'monthly' ? `${monthName(period)} ${year}`
+      : ptype === 'annual' ? `${year}`
       : `${quarterLabel(period)} ${year}`;
 
     renderSLTable(outputEl, rows, type, periodLabel, setup);
@@ -146,10 +149,10 @@ async function generateSL(type, biz, setup, outputEl) {
 
     document.getElementById('sl-excel').onclick = () => exportExcel(rows, type, periodLabel, setup, end);
     document.getElementById('sl-dat').onclick   = () => {
-      if (ptype !== 'quarterly') { exportDAT(rows, type, setup, end); return; }
+      if (ptype === 'monthly') { exportDAT(rows, type, setup, end); return; }
       // BIR RELIEF/eSubmission DAT files are filed per month, so a quarterly
-      // view must produce one DAT file per month in the quarter rather than
-      // a single file covering all three months.
+      // or annual view must produce one DAT file per month covered rather
+      // than a single file spanning multiple months.
       const byMonth = new Map();
       rows.forEach(r => {
         if (!byMonth.has(r.monthKey)) byMonth.set(r.monthKey, []);
@@ -208,7 +211,7 @@ async function buildSLSRows(biz, start, end, vm, rateByKey) {
     if (!inRange(date, start, end)) continue;
     const ck   = item?.customer || item?.Customer || '';
     const cd   = custMap[ck] || {};
-    const name = cd.companyName || [cd.lastName, cd.firstName, cd.middleName].filter(Boolean).join(', ') || item?.CustomerName || ck;
+    const name = cd.companyName || [cd.lastName, cd.firstName, cd.middleName].filter(Boolean).join(', ') || item?.CustomerName || cd.name || ck;
 
     let taxable = 0, zeroRated = 0, exempt = 0, outputVAT = 0;
     for (const line of getLines(item)) {
@@ -267,7 +270,7 @@ async function buildSLPRows(biz, start, end, vm, rateByKey) {
     if (!inRange(date, start, end)) continue;
     const sk   = item?.supplier || item?.Supplier || '';
     const sd   = suppMap[sk] || {};
-    const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sk;
+    const name = sd.companyName || [sd.lastName, sd.firstName, sd.middleName].filter(Boolean).join(', ') || item?.SupplierName || sd.name || sk;
 
     let capGoods = 0, otherGoods = 0, services = 0, zeroRated = 0, exempt = 0, inputVAT = 0;
     for (const line of getLines(item)) {
@@ -413,7 +416,12 @@ function exportExcel(rows, type, periodLabel, setup, periodEnd) {
     [],
   ];
 
+  const headerRowIdxs = [];
+  let totGross = 0, totExempt = 0, totZeroRated = 0, totTaxable = 0, totTax = 0, totGrossTaxable = 0;
+  let totServices = 0, totCapGoods = 0, totOtherGoods = 0;
+
   if (isSLS) {
+    headerRowIdxs.push(data.length, data.length + 1, data.length + 2, data.length + 3);
     data.push(['TAXABLE','TAXPAYER','REGISTERED NAME','NAME OF CUSTOMER',"CUSTOMER'S ADDRESS",'AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF']);
     data.push(['MONTH','IDENTIFICATION','','(Last Name, First Name, Middle Name)','','GROSS SALES','EXEMPT SALES','ZERO RATED SALES','TAXABLE SALES','OUTPUT TAX','GROSS TAXABLE SALES']);
     data.push(['','NUMBER','','','','','','','','','']);
@@ -423,13 +431,20 @@ function exportExcel(rows, type, periodLabel, setup, periodEnd) {
       const [regName, custName] = partyNameCols(r);
       const gross = r.exempt + r.zeroRated + r.taxable;
       const grossTaxable = r.taxable + r.outputVAT;
+      totGross += gross; totExempt += r.exempt; totZeroRated += r.zeroRated;
+      totTaxable += r.taxable; totTax += r.outputVAT; totGrossTaxable += grossTaxable;
       data.push([
         r.monthKey ? monthKeyToEndDate(r.monthKey) : monthDate, tinDashed(r.tin), regName.toUpperCase(), custName.toUpperCase(),
         [r.address1, r.address2].filter(Boolean).join(' ').toUpperCase(),
         gross, r.exempt, r.zeroRated, r.taxable, r.outputVAT, grossTaxable,
       ]);
     });
+
+    data.push(['', '', '', '', 'Grand Total :',
+      Number(totGross.toFixed(2)), Number(totExempt.toFixed(2)), Number(totZeroRated.toFixed(2)),
+      Number(totTaxable.toFixed(2)), Number(totTax.toFixed(2)), Number(totGrossTaxable.toFixed(2))]);
   } else {
+    headerRowIdxs.push(data.length, data.length + 1, data.length + 2, data.length + 3);
     data.push(['TAXABLE','TAXPAYER','REGISTERED NAME','NAME OF SUPPLIER',"SUPPLIER'S ADDRESS",'AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF','AMOUNT OF']);
     data.push(['MONTH','IDENTIFICATION','','(Last Name, First Name, Middle Name)','','GROSS PURCHASE','EXEMPT PURCHASE','ZERO-RATED PURCHASE','TAXABLE PURCHASE','PURCHASE OF SERVICES','PURCHASE OF CAPITAL GOODS','PURCHASE OF GOODS OTHER THAN CAPITAL GOODS','INPUT TAX','GROSS TAXABLE PURCHASE']);
     data.push(['','NUMBER','','','','','','','','','','','','']);
@@ -440,18 +455,42 @@ function exportExcel(rows, type, periodLabel, setup, periodEnd) {
       const taxable = r.services + r.capGoods + r.otherGoods;
       const gross = r.exempt + r.zeroRated + taxable;
       const grossTaxable = taxable + r.inputVAT;
+      totGross += gross; totExempt += r.exempt; totZeroRated += r.zeroRated; totTaxable += taxable;
+      totServices += r.services; totCapGoods += r.capGoods; totOtherGoods += r.otherGoods;
+      totTax += r.inputVAT; totGrossTaxable += grossTaxable;
       data.push([
         r.monthKey ? monthKeyToEndDate(r.monthKey) : monthDate, tinDashed(r.tin), regName.toUpperCase(), suppName.toUpperCase(),
         [r.address1, r.address2].filter(Boolean).join(' ').toUpperCase(),
         gross, r.exempt, r.zeroRated, taxable, r.services, r.capGoods, r.otherGoods, r.inputVAT, grossTaxable,
       ]);
     });
+
+    data.push(['', '', '', '', 'Grand Total :',
+      Number(totGross.toFixed(2)), Number(totExempt.toFixed(2)), Number(totZeroRated.toFixed(2)), Number(totTaxable.toFixed(2)),
+      Number(totServices.toFixed(2)), Number(totCapGoods.toFixed(2)), Number(totOtherGoods.toFixed(2)),
+      Number(totTax.toFixed(2)), Number(totGrossTaxable.toFixed(2))]);
   }
 
+  const grandTotalRowIdx = data.length - 1;
+  data.push(['------------------']);
+  data.push(['==================']);
+  data.push(['END OF REPORT']);
+
   const ws = XLSX.utils.aoa_to_sheet(data);
+  const boldRange = (rowIdx) => {
+    const row = data[rowIdx];
+    for (let c = 0; c < row.length; c++) {
+      const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
+      if (!ws[addr]) continue;
+      ws[addr].s = { font: { bold: true } };
+    }
+  };
+  headerRowIdxs.forEach(boldRange);
+  boldRange(grandTotalRowIdx);
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, isSLS ? 'SLS' : 'SLP');
-  XLSX.writeFile(wb, `${type.toUpperCase()}_${periodLabel.replace(/[\s()–\/]/g,'_')}.xlsx`);
+  XLSX.writeFile(wb, `${type.toUpperCase()}_${periodLabel.replace(/[\s()–\/]/g,'_')}.xlsx`, { cellStyles: true });
 }
 
 // ── EXPORT DAT (BIR RELIEF/eSubmission format) ─────────────────
