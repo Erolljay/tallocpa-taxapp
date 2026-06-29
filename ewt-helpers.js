@@ -98,7 +98,7 @@ function extractEWT(item, customAtcMap, tcNameByKey, rateByKey, ewtMap) {
     if (!atcInfo) return;
 
     const qty       = Number(line?.qty ?? line?.Qty ?? line?.quantity ?? 1);
-    const unitPrice = Number(line?.purchaseUnitPrice ?? line?.unitPrice ?? line?.UnitPrice ?? line?.amount ?? 0);
+    const unitPrice = Number(line?.salesUnitPrice ?? line?.purchaseUnitPrice ?? line?.unitPrice ?? line?.UnitPrice ?? line?.amount ?? 0);
     let lineTotal   = Number(line?.total ?? line?.Total ?? (unitPrice * qty));
     if (line?.discountPercentage) lineTotal *= (1 - Number(line.discountPercentage) / 100);
     lineTotal -= Number(line?.discountAmount || 0);

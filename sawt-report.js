@@ -40,6 +40,18 @@ async function initSAWTReport() {
 
   filterEl.innerHTML = `
     <div class="filter-bar">
+      <label>SAWT Form</label>
+      <select id="sawt-form">
+        <option value="1700">1700</option>
+        <option value="1701Q">1701Q</option>
+        <option value="1701">1701</option>
+        <option value="1702Q" selected>1702Q</option>
+        <option value="1702">1702</option>
+        <option value="2550M">2550M</option>
+        <option value="2550Q">2550Q</option>
+        <option value="2551Q">2551Q</option>
+        <option value="2553">2553</option>
+      </select>
       <label>Period</label>
       <select id="sawt-ptype">
         <option value="quarterly">Quarterly</option>
@@ -71,17 +83,35 @@ async function initSAWTReport() {
       Business: <strong>${escHtml(biz)}</strong> &nbsp;|&nbsp;
       TIN: <strong>${escHtml(setup.tin||'—')}</strong>
     </div>
-    <div id="sawt-period-note" style="font-size:11px;color:#9ca3af;margin-top:2px;display:none;">
-      ℹ️ The Excel (Annex A) report always covers the full quarter. Only the DAT file follows the selected period above.
-    </div>`;
+    <div id="sawt-period-note" style="font-size:11px;color:#9ca3af;margin-top:2px;display:none;"></div>`;
 
-  document.getElementById('sawt-ptype').addEventListener('change', function () {
-    const isM = this.value === 'monthly';
-    const isA = this.value === 'annual';
+  function syncPeriodWidgets() {
+    const ptype = document.getElementById('sawt-ptype').value;
+    const isM = ptype === 'monthly';
+    const isA = ptype === 'annual';
     document.getElementById('sawt-qwrap').style.display = isM || isA ? 'none' : '';
     document.getElementById('sawt-mwrap').style.display = isM ? '' : 'none';
-    document.getElementById('sawt-period-note').style.display = isM || isA ? '' : 'none';
+  }
+
+  // BIR's own form-selection menu implies a fixed filing frequency per form
+  // (monthly: 2550M; quarterly: 1701Q/1702Q/2550Q/2551Q; annual: the rest)
+  // — auto-select the matching period type so the report period always
+  // matches what that BIR form actually requires.
+  const FORM_PERIODICITY = {
+    '2550M': 'monthly',
+    '1701Q': 'quarterly', '1702Q': 'quarterly', '2550Q': 'quarterly', '2551Q': 'quarterly',
+    '1700': 'annual', '1701': 'annual', '1702': 'annual', '2553': 'annual',
+  };
+  document.getElementById('sawt-form').addEventListener('change', function () {
+    const p = FORM_PERIODICITY[this.value];
+    if (p) {
+      document.getElementById('sawt-ptype').value = p;
+      syncPeriodWidgets();
+    }
   });
+
+  document.getElementById('sawt-ptype').addEventListener('change', syncPeriodWidgets);
+  syncPeriodWidgets();
 
   document.getElementById('sawt-gen').addEventListener('click', () => generateSAWT(biz, setup, outputEl));
 
@@ -175,17 +205,15 @@ async function generateSAWT(biz, setup, outputEl) {
   const ptypeEl  = document.getElementById('sawt-ptype');
   const ptype    = ptypeEl ? ptypeEl.value : 'quarterly';
   const year     = parseInt(document.getElementById('sawt-year').value, 10);
-  const formType = 'SAWT';
+  const formType = document.getElementById('sawt-form')?.value || '1702Q';
 
-  // The Excel (Annex A) report is always generated for the full quarter,
-  // regardless of the period filter — derive that quarter here.
   const q = ptype === 'monthly'
     ? Math.ceil((parseInt(document.getElementById('sawt-month').value, 10) + 1) / 3)
     : parseInt(document.getElementById('sawt-quarter').value, 10);
-  const { start: qStart, end: qEnd } = getPeriodDates('quarterly', q, year);
 
-  // The DAT period follows the selected filter: a single month, a full
-  // quarter, or the full year.
+  // Both the Excel report and the DAT file follow the same selected period
+  // (a single month, a full quarter, or the full year) — matching the
+  // official BIR Alphalist app, which only ever generates one period at a time.
   let datStart, datEnd, periodLabel;
   if (ptype === 'monthly') {
     const month = parseInt(document.getElementById('sawt-month').value, 10);
@@ -202,12 +230,18 @@ async function generateSAWT(biz, setup, outputEl) {
 
   try {
     // Rows shown on screen / used for the DAT file follow the selected period.
-    const rows = await buildSAWTRows(biz, datStart, datEnd);
+    const allRows = await buildSAWTRows(biz, datStart, datEnd);
+    // Each SAWT form only reports a specific category of ATC: 17XX forms
+    // (1700/1701/1701Q/1702/1702Q) are creditable EWT on income payments
+    // (WI/WC/WI250/WC250 ATCs); 25XX forms (2550M/2550Q/2551Q/2553) are
+    // final withholding VAT or percentage tax (WV/WB ATCs).
+    const isIncomeForm = !/^25/.test(formType);
+    const rows = allRows.filter(r => isIncomeForm ? !/^W[VB]/.test(r.atc) : /^W[VB]/.test(r.atc));
     _sawtRows = rows;
 
     if (!rows.length) {
       outputEl.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>No EWT Transactions Found</h3>
-        <p>No sales invoices or receipts with EWT tax codes matched for ${escHtml(periodLabel)}.</p></div>`;
+        <p>No sales invoices or receipts with EWT tax codes matched for ${escHtml(periodLabel)} under form ${escHtml(formType)}.</p></div>`;
       document.getElementById('sawt-excel').style.display = 'none';
       document.getElementById('sawt-dat').style.display   = 'none';
       return;
@@ -215,11 +249,11 @@ async function generateSAWT(biz, setup, outputEl) {
 
     renderSAWTTable(outputEl, rows, periodLabel, setup);
 
-    document.getElementById('sawt-excel').style.display = ptype === 'quarterly' ? '' : 'none';
+    document.getElementById('sawt-excel').style.display = '';
     document.getElementById('sawt-dat').style.display    = '';
+    document.getElementById('sawt-excel').onclick = () => exportSAWTExcel(rows, periodLabel, setup, datStart, datEnd, formType);
     if (ptype === 'quarterly') {
-      document.getElementById('sawt-excel').onclick = () => exportSAWTExcel(rows, periodLabel, setup, qEnd, formType);
-      document.getElementById('sawt-dat').onclick   = () => exportSAWTDat(rows, setup, datEnd, formType);
+      document.getElementById('sawt-dat').onclick = () => exportSAWTDat(rows, setup, datEnd, formType);
     } else {
       document.getElementById('sawt-dat').onclick = () => exportSAWTDatSimple(rows, setup, datStart, datEnd, formType, ptype);
     }
@@ -276,40 +310,38 @@ function renderSAWTTable(el, rows, periodLabel, setup) {
 // SEQUENCE_NUM, EMPLOYER_TIN, EMPLOYER_BRANCH_CODE, REGISTERED_NAME,
 // LAST_NAME, FIRST_NAME, MIDDLE_NAME, RETRN_PERIOD, NATURE_INCOME,
 // ATC_CODE, TAX_RATE, INCOME_PAYMENT, ACTUAL_AMT_WTHLD
-function exportSAWTExcel(rows, periodLabel, setup, periodEnd, formType) {
+// Layout matches the official BIR Alphalist app's SAWT Excel export exactly:
+// one row per payee/ATC for the whole selected period (no monthly breakdown).
+function exportSAWTExcel(rows, periodLabel, setup, periodStart, periodEnd, formType) {
   if (!window.XLSX) {
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload = () => exportSAWTExcel(rows, periodLabel, setup, periodEnd, formType);
+    s.onload = () => exportSAWTExcel(rows, periodLabel, setup, periodStart, periodEnd, formType);
     document.head.appendChild(s); return;
   }
 
-  const qEndMonthName = periodEnd ? monthName(periodEnd.getMonth()).toUpperCase() : '';
-  const year = periodEnd ? periodEnd.getFullYear() : '';
   const payeeName = (setup.companyName || setup.taxpayerName || '').toUpperCase();
+  const sameMonth = periodStart.getMonth() === periodEnd.getMonth() && periodStart.getFullYear() === periodEnd.getFullYear();
+  const periodTitle = sameMonth
+    ? `FOR THE MONTH OF ${monthName(periodStart.getMonth()).toUpperCase()}, ${periodStart.getFullYear()}`
+    : `FOR THE PERIOD ${monthName(periodStart.getMonth()).toUpperCase()} ${periodStart.getFullYear()} TO ${monthName(periodEnd.getMonth()).toUpperCase()} ${periodEnd.getFullYear()}`;
 
   const sheetTitle = [
-    ['Attachment to BIR Form No. 1701Q/1702Q/2550Q'],
+    [`BIR FORM ${formType}`],
     ['SUMMARY ALPHALIST OF WITHHOLDING TAXES (SAWT)'],
-    [`FOR THE QUARTER ENDING ${qEndMonthName}, ${year}`],
+    [periodTitle],
+    [],
+    [],
     [`TIN : ${tinDashed(setup.tin)}-0000`],
     [`PAYEE'S NAME: ${payeeName}`],
     [],
-    [
-      'SEQ NO', 'TAXPAYER IDENTIFICATION NUMBER', 'CORPORATION (Registered Name)',
-      'INDIVIDUAL (Last Name, First Name, Middle Name)', 'ATC CODE', 'NATURE OF PAYMENT',
-      '1ST MONTH OF QUARTER', '', '',
-      '2ND MONTH OF QUARTER', '', '',
-      '3RD MONTH OF QUARTER', '', '',
-      'TOTAL FOR QUARTER', '',
-    ],
-    [
-      '', '', '', '', '', '',
-      'AMOUNT OF INCOME PAYMENT', 'TAX RATE', 'TAX WITHHELD',
-      'AMOUNT OF INCOME PAYMENT', 'TAX RATE', 'TAX WITHHELD',
-      'AMOUNT OF INCOME PAYMENT', 'TAX RATE', 'TAX WITHHELD',
-      'TOTAL AMOUNT', 'TOTAL TAX WITHHELD',
-    ],
+    [],
+    [],
+    ['SEQ', 'TAXPAYER', 'CORPORATION', 'INDIVIDUAL', 'ATC CODE', 'NATURE OF PAYMENT', 'AMOUNT OF', 'TAX RATE', 'AMOUNT OF'],
+    ['NO', 'IDENTIFICATION', '(Registered Name)', '(Last Name, First Name, Middle Name)', '', '', 'INCOME PAYMENT', '', 'TAX WITHHELD'],
+    ['', 'NUMBER', '', '', '', '', '', '', ''],
+    ['(1)', '(2)', '(3)', '(4)', '(5)', '', '(6)', '(7)', '(8)'],
+    ['------------------------------', '------------------------------', '------------------------------', '------------------------------', '------------------------------', '------------------------------', '------------------------------', '------------------------------', '------------------------------'],
   ];
 
   const data = [...sheetTitle];
@@ -318,12 +350,11 @@ function exportSAWTExcel(rows, periodLabel, setup, periodEnd, formType) {
   rows.forEach((r, i) => {
     const c = _sawtCustMap[r.custKey] || {};
     const isIndividual = !c.companyName && (c.lastName || c.firstName);
-    const corpName = isIndividual ? '' : (c.companyName || c.name || '').toUpperCase().padEnd(50, ' ');
+    const corpName = isIndividual ? '' : (c.companyName || c.name || '').toUpperCase();
     const indName  = isIndividual
-      ? [c.lastName, c.firstName, c.middleName].filter(Boolean).join(', ').toUpperCase().padEnd(50, ' ')
-      : ''.padEnd(50, ' ');
+      ? [c.lastName, [c.firstName, c.middleName].filter(Boolean).join(' ')].filter(Boolean).join(', ').toUpperCase()
+      : '';
 
-    const m = r.months || [{base:0,ewt:0},{base:0,ewt:0},{base:0,ewt:0}];
     totBase += r.base; totEwt += r.ewt;
 
     data.push([
@@ -333,22 +364,15 @@ function exportSAWTExcel(rows, periodLabel, setup, periodEnd, formType) {
       indName,
       r.atc,
       r.desc,
-      Number(m[0].base.toFixed(2)), r.rate, Number(m[0].ewt.toFixed(2)),
-      Number(m[1].base.toFixed(2)), r.rate, Number(m[1].ewt.toFixed(2)),
-      Number(m[2].base.toFixed(2)), r.rate, Number(m[2].ewt.toFixed(2)),
-      Number(r.base.toFixed(2)), Number(r.ewt.toFixed(2)),
+      Number(r.base.toFixed(2)), r.rate, Number(r.ewt.toFixed(2)),
     ]);
   });
 
-  const headerRowIdxs = [6, 7];
+  const headerRowIdxs = [10, 11];
+  data.push(['', '', '', '', '', '', '------------------', '------------------', '------------------']);
   const grandTotalRowIdx = data.length;
-  data.push([
-    '', '', '', '', '', 'Grand Total :',
-    '', '', '', '', '', '', '', '', '',
-    Number(totBase.toFixed(2)), Number(totEwt.toFixed(2)),
-  ]);
-  data.push(['------------------']);
-  data.push(['==================']);
+  data.push(['Grand Total :', 0, '', '', '', '', Number(totBase.toFixed(2)), '', Number(totEwt.toFixed(2))]);
+  data.push(['', '', '', '', '', '', '==================', '==================', '==================']);
   data.push(['END OF REPORT']);
 
   const ws1 = XLSX.utils.aoa_to_sheet(data);
@@ -372,9 +396,9 @@ function exportSAWTExcel(rows, periodLabel, setup, periodEnd, formType) {
 // ── DAT EXPORT (SAWT file structure per Annex A: Header / Details / Control) ──
 // Format mirrors QAP's DAT structure, but for our customers' withholding on
 // our sales rather than our withholding on suppliers' purchases:
-//   HSAWT,H<formType>,<TIN9>,<branch4>,"<payee name>",<startMM/YYYY>,<RDO>
-//   D1,<formType>,<seq>,<custTIN9>,<custBranch4>,"<cust name>",<lname>,<fname>,<mname>,<MM1/YYYY>,<ATC>,<rate>,<amt1>,<tax1>,<MM2/YYYY>,<amt2>,<tax2>,<MM3/YYYY>,<amt3>,<tax3>
-//   C1,<formType>,<TIN9>,<branch4>,<endMM/YYYY>,<totalAmount>,<totalTax>
+//   HSAWT,H<formType>,<TIN9>,<branch4>,"<payee name>","<lname>","<fname>","<mname>",<endMM/YYYY>,<RDO>
+//   DSAWT,D<formType>,<seq>,<custTIN9>,<custBranch4>,"<cust name>","<lname>","<fname>","<mname>",<MM/YYYY>,,<ATC>,<rate>,<amt>,<tax>
+//   CSAWT,C<formType>,<TIN9>,<branch4>,<endMM/YYYY>,<totalAmount>,<totalTax>
 // BIR's Validation Module rejects DAT files with missing/invalid customer TINs
 // (defaults to 000000000) or branch codes — warn before exporting.
 function validateSAWTDat(rows) {
@@ -411,40 +435,40 @@ function exportSAWTDat(rows, setup, periodEnd, formType) {
   const periodEndStr = monthsInQ[2];
 
   const payeeName = stripSpecial(setup.companyName || setup.taxpayerName || '').toUpperCase();
+  const filerLn = stripSpecial(setup.lastName || '').toUpperCase();
+  const filerFn = stripSpecial(setup.firstName || '').toUpperCase();
+  const filerMn = stripSpecial(setup.middleName || '').toUpperCase();
 
   const lines = [];
 
   // Header record
   lines.push([
-    'HSAWT', `H${formType}`, ourTin, '0000', `"${payeeName}"`, periodStart, rdo,
+    'HSAWT', `H${formType}`, ourTin, '0000', `"${payeeName}"`, qd(filerLn) || '""', qd(filerFn) || '""', qd(filerMn) || '""', periodEndStr, rdo,
   ].join(','));
 
   let totBase = 0, totEwt = 0;
 
-  // Detail records
+  // Detail records — one row per payee/ATC for the whole quarter (no monthly breakdown)
   rows.forEach((r, i) => {
     const c = _sawtCustMap[r.custKey] || {};
-    const m = r.months || [{base:0,ewt:0},{base:0,ewt:0},{base:0,ewt:0}];
     totBase += r.base; totEwt += r.ewt;
     const corpName = stripSpecial(c.companyName || (!c.lastName && !c.firstName ? c.name : '') || '').toUpperCase();
     const ln = stripSpecial(c.lastName || '').toUpperCase();
     const fn = stripSpecial(c.firstName || '').toUpperCase();
     const mn = stripSpecial(c.middleName || '').toUpperCase();
     lines.push([
-      'D1', formType,
+      'DSAWT', `D${formType}`,
       i + 1,
       tin9(c.tin),
       (c.branchCode || '0001'),
       qd(corpName), qd(ln), qd(fn), qd(mn),
-      monthsInQ[0], r.atc, r.rate.toFixed(2), csvNum(m[0].base), csvNum(m[0].ewt),
-      monthsInQ[1], csvNum(m[1].base), csvNum(m[1].ewt),
-      monthsInQ[2], csvNum(m[2].base), csvNum(m[2].ewt),
+      periodEndStr, '', r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
     ].join(','));
   });
 
   // Control record
   lines.push([
-    'C1', formType, ourTin, '0000', periodEndStr, csvNum(totBase), csvNum(totEwt),
+    'CSAWT', `C${formType}`, ourTin, '0000', periodEndStr, csvNum(totBase), csvNum(totEwt),
   ].join(','));
 
   const content = lines.join('\r\n') + '\r\n';
@@ -466,12 +490,15 @@ function exportSAWTDatSimple(rows, setup, periodStart, periodEnd, formType, ptyp
   const endStr   = `${String(periodEnd.getMonth()+1).padStart(2,'0')}/${periodEnd.getFullYear()}`;
 
   const payeeName = stripSpecial(setup.companyName || setup.taxpayerName || '').toUpperCase();
+  const filerLn = stripSpecial(setup.lastName || '').toUpperCase();
+  const filerFn = stripSpecial(setup.firstName || '').toUpperCase();
+  const filerMn = stripSpecial(setup.middleName || '').toUpperCase();
 
   const lines = [];
 
   // Header record
   lines.push([
-    'HSAWT', `H${formType}`, ourTin, '0000', `"${payeeName}"`, startStr, rdo,
+    'HSAWT', `H${formType}`, ourTin, '0000', `"${payeeName}"`, qd(filerLn) || '""', qd(filerFn) || '""', qd(filerMn) || '""', endStr, rdo,
   ].join(','));
 
   let totBase = 0, totEwt = 0;
@@ -485,18 +512,18 @@ function exportSAWTDatSimple(rows, setup, periodStart, periodEnd, formType, ptyp
     const fn = stripSpecial(c.firstName || '').toUpperCase();
     const mn = stripSpecial(c.middleName || '').toUpperCase();
     lines.push([
-      'D1', formType,
+      'DSAWT', `D${formType}`,
       i + 1,
       tin9(c.tin),
       (c.branchCode || '0001'),
       qd(corpName), qd(ln), qd(fn), qd(mn),
-      ptype === 'annual' ? endStr : startStr, r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
+      (ptype === 'annual' ? endStr : startStr), '', r.atc, r.rate.toFixed(2), csvNum(r.base), csvNum(r.ewt),
     ].join(','));
   });
 
   // Control record
   lines.push([
-    'C1', formType, ourTin, '0000', endStr, csvNum(totBase), csvNum(totEwt),
+    'CSAWT', `C${formType}`, ourTin, '0000', endStr, csvNum(totBase), csvNum(totEwt),
   ].join(','));
 
   const content = lines.join('\r\n') + '\r\n';
