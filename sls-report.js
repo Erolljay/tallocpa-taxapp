@@ -187,6 +187,12 @@ function monthKeyToEndDate(mk) {
   return new Date(y, m, 0);
 }
 
+// Format a Date using its LOCAL calendar fields (toISOString() converts to UTC,
+// which shifts the date backward a day in positive-UTC-offset timezones like PH).
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 async function buildSLSRows(biz, start, end, vm, rateByKey) {
   const [invItems, receiptItems, custMap] = await Promise.all([
     fetchAllBatch('/api4/sales-invoice-batch', biz),
@@ -225,7 +231,7 @@ async function buildSLSRows(biz, start, end, vm, rateByKey) {
     let g = groups.get(gk);
     if (!g) {
       g = {
-        date: monthKeyToEndDate(mk).toISOString().slice(0,10), monthKey: mk, reference: '', txnCount: 0,
+        date: localDateStr(monthKeyToEndDate(mk)), monthKey: mk, reference: '', txnCount: 0,
         partyKey: ck,
         name, tin: cd.tin || '', address: [cd.address1, cd.address2].filter(Boolean).join(', '),
         companyName: cd.companyName || '', lastName: cd.lastName || '', firstName: cd.firstName || '', middleName: cd.middleName || '',
@@ -283,7 +289,7 @@ async function buildSLPRows(biz, start, end, vm, rateByKey) {
     let g = groups.get(gk);
     if (!g) {
       g = {
-        date: monthKeyToEndDate(mk).toISOString().slice(0,10), monthKey: mk, reference: '', txnCount: 0,
+        date: localDateStr(monthKeyToEndDate(mk)), monthKey: mk, reference: '', txnCount: 0,
         partyKey: sk,
         name, tin: sd.tin || '', address: [sd.address1, sd.address2].filter(Boolean).join(', '),
         companyName: sd.companyName || '', lastName: sd.lastName || '', firstName: sd.firstName || '', middleName: sd.middleName || '',
