@@ -17,27 +17,11 @@ const BI_IS_SALE = !BI_IS_PAYROLL && (typeof BI_TXN_TYPE !== 'undefined' ? BI_TX
 const BI_PARTY_LABEL = BI_IS_PAYROLL ? 'Employee' : (BI_IS_SALE ? 'Customer' : 'Supplier');
 const BI_SALARIES_PAYABLE_ACCOUNT = '650a36fe-801f-4031-8d5b-ab422d061fca';
 
-// ── PAYROLL: fixed BIR earnings/deduction/contribution categories, each
-// column resolves (via the existing Payslip Items mapping) to whichever
-// Manager payslip item the firm already assigned to that category.
-const BI_PAYROLL_COLS = [
-  { header: 'Basic Pay',                  cat: 'ph-bir-earn-01', group: 'earnings' },
-  { header: 'Overtime Pay',               cat: 'ph-bir-earn-02', group: 'earnings' },
-  { header: 'Holiday Pay',                cat: 'ph-bir-earn-03', group: 'earnings' },
-  { header: 'Night Differential',         cat: 'ph-bir-earn-04', group: 'earnings' },
-  { header: 'Hazard Pay',                 cat: 'ph-bir-earn-05', group: 'earnings' },
-  { header: '13th Month Pay',             cat: 'ph-bir-earn-06', group: 'earnings' },
-  { header: 'De Minimis Benefits',        cat: 'ph-bir-earn-07', group: 'earnings' },
-  { header: 'Other Taxable Pay',          cat: 'ph-bir-earn-08', group: 'earnings' },
-  { header: 'SSS Employee Share',         cat: 'ph-bir-ded-02',  group: 'deductions' },
-  { header: 'PhilHealth Employee Share',  cat: 'ph-bir-ded-03',  group: 'deductions' },
-  { header: 'Pag-IBIG Employee Share',    cat: 'ph-bir-ded-04',  group: 'deductions' },
-  { header: 'Withholding Tax',            cat: 'ph-bir-ded-01',  group: 'deductions' },
-  { header: 'SSS Employer Share',         cat: 'ph-bir-con-01',  group: 'contributions' },
-  { header: 'PhilHealth Employer Share',  cat: 'ph-bir-con-02',  group: 'contributions' },
-  { header: 'Pag-IBIG Employer Share',    cat: 'ph-bir-con-03',  group: 'contributions' },
-];
-const BI_PAYROLL_TYPE_ENDPOINT = { earnings: 'payslip-earnings-item', deductions: 'payslip-deduction-item', contributions: 'payslip-contribution-item' };
+// ── PAYROLL: one column per payslip item the business has actually set up
+// in Manager (Earnings / Deductions / Contributions), in that order. The
+// column list is fetched live per business — see buildLookupCache() — so
+// BI_PAYROLL_COLS below is only a placeholder until the cache is built.
+let BI_PAYROLL_COLS = [];
 
 // ── SIMPLE CLIENT TEMPLATE (what the client/bookkeeper fills in) ──
 // Both Sales and Purchase invoices are always tax-inclusive: VAT-category
@@ -47,43 +31,48 @@ const BI_PAYROLL_TYPE_ENDPOINT = { earnings: 'payslip-earnings-item', deductions
 // purchases, ATC/withholding tax codes) vary per business, so the
 // downloaded template includes extra reference sheets (fetched live for
 // the selected business) to copy exact names from.
-const BI_HEADERS = BI_IS_PAYROLL ? [
-  'Pay Period End / Payment Date (YYYY-MM-DD)', 'Employee Name', 'Reference',
-  ...BI_PAYROLL_COLS.map(c => c.header),
-  'Payment Account (Cash/Bank)',
-  'Gross Pay (computed)', 'Total Deductions (computed)', 'Net Pay (computed)',
-] : BI_IS_SALE ? [
-  'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
-  'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
-  'CWT Account', 'CWT ATC Code', 'CWT Amount', 'WV Account', 'WV ATC Code', 'WV Amount',
-  'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
-] : [
-  'Date (YYYY-MM-DD)', 'Supplier Name', 'Reference', 'Account',
-  'Input VAT 12% (Capital Goods)', 'Input VAT 12% (Other Goods)', 'Input VAT 12% (Services)',
-  'Zero-Rated Purchases', 'VAT Exempt Purchases',
-  'Withholding Tax Account', 'ATC Code', 'Withholding Tax Amount',
-  'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
-];
+// Payroll headers/sample row depend on BI_PAYROLL_COLS, which is only known
+// once the business's actual payslip items have been fetched (see
+// buildLookupCache) — so these are computed via functions, not constants.
+function biHeaders() {
+  return BI_IS_PAYROLL ? [
+    'Pay Period End / Payment Date (YYYY-MM-DD)', 'Employee Name', 'Reference',
+    ...BI_PAYROLL_COLS.map(c => c.header),
+    'Payment Account (Cash/Bank)',
+    'Gross Pay (computed)', 'Total Deductions (computed)', 'Net Pay (computed)',
+  ] : BI_IS_SALE ? [
+    'Date (YYYY-MM-DD)', 'Customer Name', 'Reference', 'Revenue Account',
+    'VATable Sales', 'VAT Exempt Sales', 'Zero-Rated Sales',
+    'CWT Account', 'CWT ATC Code', 'CWT Amount', 'WV Account', 'WV ATC Code', 'WV Amount',
+    'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
+  ] : [
+    'Date (YYYY-MM-DD)', 'Supplier Name', 'Reference', 'Account',
+    'Input VAT 12% (Capital Goods)', 'Input VAT 12% (Other Goods)', 'Input VAT 12% (Services)',
+    'Zero-Rated Purchases', 'VAT Exempt Purchases',
+    'Withholding Tax Account', 'ATC Code', 'Withholding Tax Amount',
+    'Paid Same Day (Yes/No)', 'Paid Amount', 'Paid Date (YYYY-MM-DD)', 'Payment Account (Cash/Bank)',
+  ];
+}
 
-const BI_SAMPLE_ROWS = BI_IS_PAYROLL ? [
-  ['2026-06-15', 'Juan Dela Cruz', 'PAYROLL-JUN1-2026',
-    15000, '', '', '', '', '', '', '',
-    562.50, 450, 175,
-    300,
-    562.50, 450, 175,
-    'Cash on Hand'],
-] : BI_IS_SALE ? [
-  ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
-    5600, '', '',
-    '', '', '', '', '', '',
-    'Yes', 5600, '2026-06-18', 'Cash on Hand'],
-] : [
-  ['2026-06-18', 'ABC Trading', 'BILL-2001', 'Professional Fees',
-    '', 2000, '',
-    '', '',
-    'Withholding Tax Payable', 'WI010 – Prof. fees ≤3M (5%)', 100,
-    'No', '', '', ''],
-];
+function biSampleRows() {
+  if (BI_IS_PAYROLL) {
+    const firstEarnIdx = BI_PAYROLL_COLS.findIndex(c => c.group === 'earnings');
+    const cols = BI_PAYROLL_COLS.map((c, i) => i === firstEarnIdx ? 15000 : '');
+    return [['2026-06-15', 'Juan Dela Cruz', 'PAYROLL-JUN1-2026', ...cols, 'Cash on Hand']];
+  }
+  return BI_IS_SALE ? [
+    ['2026-06-18', '48 Coffee Co.', 'INV-1001', 'Sales Revenue',
+      5600, '', '',
+      '', '', '', '', '', '',
+      'Yes', 5600, '2026-06-18', 'Cash on Hand'],
+  ] : [
+    ['2026-06-18', 'ABC Trading', 'BILL-2001', 'Professional Fees',
+      '', 2000, '',
+      '', '',
+      'Withholding Tax Payable', 'WI010 – Prof. fees ≤3M (5%)', 100,
+      'No', '', '', ''],
+  ];
+}
 
 let _biRows  = [];
 let _biBiz   = '';
@@ -200,7 +189,7 @@ function downloadTemplate() {
     const steps = BI_IS_PAYROLL ? [
       '1. Fill in the "Batch Import" sheet below — one row per employee per pay period.',
       '2. Date columns use YYYY-MM-DD format (e.g. 2026-06-15).',
-      '3. Earnings/Deduction/Contribution columns map to whichever Manager payslip item the firm has already assigned to that BIR category under the app\'s "Payslip items" tab — leave a column blank if it does not apply to this payslip.',
+      '3. Earnings/Deduction/Contribution columns are the actual payslip items set up for this business in Manager — leave a column blank if it does not apply to this payslip.',
       '4. "Payment Account" column: pick a value from the dropdown (sourced from the "Payment Accounts" sheet) or type the exact cash/bank account title. All payroll is assumed paid the same day as the Pay Period End date entered in column 1 — net pay (earnings less deductions) is settled against the firm\'s Salaries Payable / Employee Clearing Account automatically.',
       '5. Do not rename, delete, or reorder the columns in the "Batch Import" sheet — the importer reads them by position.',
       '6. Use the "Withholding Tax Calculator" sheet (pick an employee, enter gross compensation and non-taxable deductions) to work out the "Withholding Tax" amount for that row, per the BIR monthly withholding tax table.',
@@ -223,6 +212,8 @@ function downloadTemplate() {
     const ws = wb.addWorksheet('Batch Import');
     const headerRowIdx = BI_IS_PAYROLL ? 2 : 1;
     const firstSampleRowIdx = headerRowIdx + 1;
+    const headers = biHeaders();
+    const sampleRows = biSampleRows();
 
     const earnCount = BI_PAYROLL_COLS.filter(c => c.group === 'earnings').length;
     const dedCount = BI_PAYROLL_COLS.filter(c => c.group === 'deductions').length;
@@ -255,15 +246,15 @@ function downloadTemplate() {
       groupRow.height = 20;
     }
 
-    ws.addRow(BI_HEADERS);
-    BI_SAMPLE_ROWS.forEach(r => ws.addRow(r));
+    ws.addRow(headers);
+    sampleRows.forEach(r => ws.addRow(r));
     const headerRow = ws.getRow(headerRowIdx);
     headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BI_TEMPLATE_BRAND } };
     headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     headerRow.height = 32;
     ws.views = [{ state: 'frozen', ySplit: headerRowIdx }];
-    BI_HEADERS.forEach((h, i) => { ws.getColumn(i + 1).width = Math.max(14, Math.min(28, h.length + 4)); });
+    headers.forEach((h, i) => { ws.getColumn(i + 1).width = Math.max(14, Math.min(28, h.length + 4)); });
     ws.getRow(firstSampleRowIdx).font = { italic: true, color: { argb: 'FF888888' } };
 
     // Payroll: per-row Gross Pay / Total Deductions / Net Pay formulas, for
@@ -313,7 +304,7 @@ function downloadTemplate() {
     const coaRange = `'${BI_IS_PAYROLL ? 'Payment Accounts' : 'Chart of Accounts'}'!$A$2:$A$${Math.max(2, accountNames.length + 1)}`;
     const atcRange = `'ATC Codes'!$A$2:$A$${Math.max(2, atcCodes.length + 1)}`;
     const LAST_DATA_ROW = 500;
-    BI_HEADERS.forEach((h, i) => {
+    headers.forEach((h, i) => {
       const isAccountCol = /account/i.test(h);
       const isAtcCol = /atc code/i.test(h);
       if (!isAccountCol && !isAtcCol) return;
@@ -426,7 +417,7 @@ async function buildLookupCache(biz) {
   };
 
   if (BI_IS_PAYROLL) {
-    const [bsAccounts, plAccounts, bankCashAccounts, employees, earningsItems, deductionItems, contributionItems, payrollMap] = await Promise.all([
+    const [bsAccounts, plAccounts, bankCashAccounts, employees, earningsItems, deductionItems, contributionItems] = await Promise.all([
       fetchAllBatch('/api4/balance-sheet-account-batch', biz).catch(() => []),
       fetchAllBatch('/api4/profit-and-loss-statement-account-batch', biz).catch(() => []),
       fetchAllBatch('/api4/bank-or-cash-account-batch', biz).catch(() => []),
@@ -434,7 +425,6 @@ async function buildLookupCache(biz) {
       fetchAllBatch('/api4/payslip-earnings-item-batch', biz).catch(() => []),
       fetchAllBatch('/api4/payslip-deduction-item-batch', biz).catch(() => []),
       fetchAllBatch('/api4/payslip-contribution-item-batch', biz).catch(() => []),
-      getPayrollMapping(biz),
     ]);
     const accounts = [...bsAccounts, ...plAccounts, ...bankCashAccounts];
     const accountList = accounts.map(row => {
@@ -450,22 +440,28 @@ async function buildLookupCache(biz) {
       return (d.name || d.Name || '').trim();
     }).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
+    // One batch-import column per payslip item the business has actually
+    // set up in Manager, grouped Earnings / Deductions / Contributions (in
+    // that order) and alphabetical within each group.
     const itemsByGroup = { earnings: earningsItems, deductions: deductionItems, contributions: contributionItems };
     const itemNameByKey = new Map();
     const itemGroupByKey = new Map();
+    const payrollCols = [];
     Object.entries(itemsByGroup).forEach(([group, items]) => {
+      const groupCols = [];
       items.forEach(row => {
         const d = row?.item || row?.value || row || {};
         const k = row?.key || row?.Key || d.key || '';
         const n = (d.name || d.Name || '').trim();
-        if (k) { itemNameByKey.set(k, n); itemGroupByKey.set(k, group); }
+        if (!k || !n) return;
+        itemNameByKey.set(k, n);
+        itemGroupByKey.set(k, group);
+        groupCols.push({ header: n, itemKey: k, group });
       });
+      groupCols.sort((a, b) => a.header.localeCompare(b.header));
+      payrollCols.push(...groupCols);
     });
-    // Resolve each BIR category to the first payslip item the firm assigned to it.
-    const itemKeyByCategory = new Map();
-    Object.entries(payrollMap || {}).forEach(([itemKey, cat]) => {
-      if (cat && !itemKeyByCategory.has(cat) && itemGroupByKey.has(itemKey)) itemKeyByCategory.set(cat, itemKey);
-    });
+    BI_PAYROLL_COLS = payrollCols;
 
     _biCache = {
       biz,
@@ -474,9 +470,9 @@ async function buildLookupCache(biz) {
       bankCashAccountList,
       employeeNames,
       partyKeyByName: keyMap(employees),
-      itemKeyByCategory,
       itemNameByKey,
       itemGroupByKey,
+      payrollCols,
     };
     return _biCache;
   }
@@ -569,8 +565,9 @@ function parsePayrollRow(r, idx, cache) {
   const get = i => (r[i] !== undefined ? String(r[i]).trim() : '');
   const num = i => parseFloat(get(i)) || 0;
 
+  const cols = cache.payrollCols;
   const FIRST_COL = 3; // 0=Date, 1=Employee Name, 2=Reference
-  const paidColStart = FIRST_COL + BI_PAYROLL_COLS.length;
+  const paidColStart = FIRST_COL + cols.length;
 
   const row = {
     rowNum: idx + 3,
@@ -582,19 +579,14 @@ function parsePayrollRow(r, idx, cache) {
   };
 
   let hasAmount = false;
-  BI_PAYROLL_COLS.forEach((col, i) => {
+  cols.forEach((col, i) => {
     const amount = Math.abs(num(FIRST_COL + i));
     if (amount <= 0) return;
     hasAmount = true;
-    const itemKey = cache.itemKeyByCategory.get(col.cat);
-    if (!itemKey) {
-      errors.push(`No payslip item is assigned to BIR category "${col.header}" — assign one under the app's "Payslip items" tab first`);
-      return;
-    }
     row.lines.push({
       group: col.group,
-      itemKey,
-      acctName: cache.itemNameByKey.get(itemKey) || col.header,
+      itemKey: col.itemKey,
+      acctName: col.header,
       amount,
     });
   });
