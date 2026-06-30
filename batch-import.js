@@ -463,6 +463,14 @@ async function buildLookupCache(biz) {
     });
     BI_PAYROLL_COLS = payrollCols;
 
+    const partyList = employees.map(row => {
+      const d = row?.item || row?.value || row || {};
+      const name = (d.name || d.Name || '').trim();
+      const key = row?.key || row?.Key || d.key || '';
+      return { key, name, normName: normalizePartyName(name), tin: '' };
+    }).filter(p => p.key && p.name);
+    const partyKeyByNormName = new Map(partyList.map(p => [p.normName, p.key]).filter(([n]) => n));
+
     _biCache = {
       biz,
       accountKeyByName: keyMap(accounts),
@@ -470,6 +478,8 @@ async function buildLookupCache(biz) {
       bankCashAccountList,
       employeeNames,
       partyKeyByName: keyMap(employees),
+      partyKeyByNormName,
+      partyList,
       itemNameByKey,
       itemGroupByKey,
       payrollCols,
