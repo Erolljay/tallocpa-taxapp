@@ -595,7 +595,7 @@ function parsePayrollRow(r, idx, cache) {
   if (!row.partyName) errors.push(`${BI_PARTY_LABEL} name is blank`);
   if (!hasAmount) errors.push(`No earnings/deduction/contribution amount entered`);
 
-  row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
+  resolvePartyMatch(row, cache);
 
   row.paidAmount = row.lines.filter(l => l.group === 'earnings').reduce((s, l) => s + l.amount, 0)
     - row.lines.filter(l => l.group === 'deductions').reduce((s, l) => s + l.amount, 0);
