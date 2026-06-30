@@ -1,0 +1,29 @@
+From fb9e3c361111242d8c6518fa7547f7afc212568f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 30 Jun 2026 08:33:15 +0000
+Subject: [PATCH] Fix crash in Payroll batch import preview for new employees
+
+parsePayrollRow set row.partyMissing manually but never set
+row.nearDupCandidates, so statusCellHtml threw reading .length of
+undefined when a payroll row referenced an unmatched employee. Use
+resolvePartyMatch like the purchase/sale import paths do.
+---
+ batch-import.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/batch-import.js b/batch-import.js
+index fb647d3..d60da72 100644
+--- a/batch-import.js
++++ b/batch-import.js
+@@ -595,7 +595,7 @@ function parsePayrollRow(r, idx, cache) {
+   if (!row.partyName) errors.push(`${BI_PARTY_LABEL} name is blank`);
+   if (!hasAmount) errors.push(`No earnings/deduction/contribution amount entered`);
+ 
+-  row.partyMissing = !!row.partyName && !cache.partyKeyByName.has(row.partyName.trim().toLowerCase());
++  resolvePartyMatch(row, cache);
+ 
+   row.paidAmount = row.lines.filter(l => l.group === 'earnings').reduce((s, l) => s + l.amount, 0)
+     - row.lines.filter(l => l.group === 'deductions').reduce((s, l) => s + l.amount, 0);
+-- 
+2.43.0
+
